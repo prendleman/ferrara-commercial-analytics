@@ -7,7 +7,7 @@ from __future__ import annotations
 import time
 
 from app.core import METRICS, answer, insight, metric_sql, run_metric
-from app.databricks_backend import genie_status
+from app.databricks_backend import ask_genie
 
 BOARD_CHAIN = (
     "commercial_funnel",
@@ -32,6 +32,11 @@ EVAL_CASES = [
     {"id": "sku", "lane": "metric", "question": "sku rank", "expect": "metric", "metric": "sku_rank"},
     {"id": "channel", "lane": "metric", "question": "net sales by channel", "expect": "metric", "metric": "net_by_channel"},
     {"id": "peers", "lane": "metric", "question": "show the public competitive set", "expect": "metric", "metric": "public_landscape"},
+    {"id": "press", "lane": "plays", "question": "where should we press", "expect": "plays"},
+    {"id": "calls", "lane": "metric", "question": "who should we call", "expect": "metric", "metric": "call_list"},
+    {"id": "orangeburg", "lane": "metric", "question": "what do we know about the orangeburg plant", "expect": "metric", "metric": "public_landscape"},
+    {"id": "vendor", "lane": "metric", "question": "vendor scorecard", "expect": "metric", "metric": "vendor_scorecard"},
+    {"id": "close", "lane": "metric", "question": "where does nerds lose the close", "expect": "metric", "metric": "close_by_family_channel"},
     {"id": "nielsen", "lane": "refuse", "question": "what is our Nielsen share", "expect": "refuse"},
     {"id": "ibp", "lane": "refuse", "question": "SAP IBP forecast for Nerds", "expect": "refuse"},
     {"id": "mdm", "lane": "refuse", "question": "do we own enterprise MDM", "expect": "refuse"},
@@ -145,11 +150,24 @@ def run_evals(conn, username="lab", account_id=None, audit_conn=None):
 
 def compare(conn, question, username, account_id=None, audit_conn=None):
     governed = answer(conn, question, username, account_id, audit_conn=audit_conn)
-    genie = genie_status()
-    if governed["route"] == "metric":
-        note = "The governed router answered from an approved metric. Genie is not called."
-    else:
+    if governed["route"] != "metric":
+        genie = {
+            "ok": False,
+            "called": False,
+            "error": "Genie was not called. A refusal is not sent to a discovery space.",
+        }
         note = "The governed router refused. A discovery model is not allowed to fill that gap in this demo."
+    else:
+        genie = ask_genie(question)
+        if genie.get("called"):
+            title = genie.get("space_title") or "the configured Genie space"
+            note = (
+                f"The left side is an approved metric on this book. "
+                f"The right side is Genie’s reply from “{title}”. "
+                f"That space is not this synthetic book."
+            )
+        else:
+            note = "The governed router answered from an approved metric. Genie was not called."
     return {"kind": "compare", "question": question, "governed": governed, "genie": genie, "note": note}
 
 

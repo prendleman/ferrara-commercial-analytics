@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
+  <div class="chrome">
   <header class="top">
     <div class="brand">
       <span class="wordmark">Ferrara</span>
@@ -21,11 +22,6 @@
     </div>
     <div class="session">
       <div class="session-bar">
-        <span class="switch" id="backend-switch">
-          <button type="button" data-backend="local">SQLite</button>
-          <button type="button" data-backend="databricks">Databricks</button>
-          <button type="button" data-backend="snowflake">Snowflake</button>
-        </span>
         <span class="who" id="who"></span>
         <button id="logout" class="ghost" type="button">Log out</button>
       </div>
@@ -33,19 +29,48 @@
     </div>
   </header>
   <nav>
-    <button type="button" data-tab="overview" class="active">Overview</button>
+    <button type="button" data-tab="brief" class="active">Brief</button>
+    <button type="button" data-tab="overview">Overview</button>
     <button type="button" data-tab="commercial">Commercial</button>
     <button type="button" data-tab="analytics">Analytics</button>
+    <button type="button" data-tab="supply">Supply</button>
+    <button type="button" data-tab="operations">Operations</button>
     <button type="button" data-tab="market">Market</button>
     <button type="button" data-tab="assistant">Assistant</button>
     <button type="button" data-tab="lab">Lab</button>
     <button type="button" data-tab="catalog">Catalog</button>
   </nav>
+  </div>
+  <div class="ribbon app-ribbon" aria-label="Public brand families in the synthetic book">
+    <span class="fam fam-nerds">Nerds</span>
+    <span class="fam fam-trolli">Trolli</span>
+    <span class="fam fam-sweetarts">SweeTarts</span>
+    <span class="fam fam-laffy">Laffy Taffy</span>
+    <span class="fam fam-butterfinger">Butterfinger</span>
+    <span class="fam fam-babyruth">Baby Ruth</span>
+    <span class="fam fam-brachs">Brach's</span>
+    <span class="fam fam-lemonhead">Lemonhead</span>
+  </div>
+  <div id="slicers" class="slicers" aria-label="Slicers"></div>
   <main>
-    <section id="overview" class="tab">
+    <section id="brief" class="tab">
+      <p class="kicker">This morning</p>
+      <h2>The slice, the call, and what not to claim.</h2>
+      <p class="fine">The chips change the book, the call, the plays, and the supply miss. The published lines stay put. Orangeburg is not current output. The campaigns are not scored.</p>
+      <div id="brief-kpis" class="stats"></div>
+      <div class="two">
+        <article class="panel"><h3>Who to call</h3><div id="brief-calls"></div></article>
+        <article class="panel"><h3>Where to press</h3><div id="brief-plays"></div></article>
+      </div>
+      <div class="two" style="margin-top:16px">
+        <article class="panel"><h3>Supply miss</h3><p class="fine">Fictional vendors. Not a forecast.</p><div id="brief-supply"></div></article>
+        <article class="panel"><h3>Do not claim</h3><p class="fine">Published record. These lines do not follow the chips.</p><div id="brief-public"></div></article>
+      </div>
+    </section>
+    <section id="overview" class="tab" hidden>
       <p class="kicker">Book of business</p>
-      <h2>Twelve months, one definition of net.</h2>
-      <p class="fine">October 2025 through September 2026. Public brand names, fictional accounts, generated dollars.</p>
+      <h2>Seven fiscal years, one definition of net.</h2>
+      <p class="fine">October 2019 through September 2026. Region and subregion. Public brand names, fictional accounts, generated dollars.</p>
       <div id="kpis" class="stats"></div>
       <div class="two">
         <article class="panel">
@@ -60,7 +85,7 @@
       <div class="two" style="margin-top:16px">
         <article class="panel">
           <h3>Season index</h3>
-          <p class="fine">January 2026 is 100.</p>
+          <p class="fine">January is 100 across the years in view.</p>
           <div id="season"></div>
         </article>
         <article class="panel">
@@ -78,6 +103,10 @@
         <article class="panel"><h3>Win rate by channel</h3><div id="win"></div></article>
       </div>
       <div class="two" style="margin-top:16px">
+        <article class="panel"><h3>Win rate by region</h3><div id="win-region"></div></article>
+        <article class="panel"><h3>Win rate by subregion</h3><div id="win-subregion"></div></article>
+      </div>
+      <div class="two" style="margin-top:16px">
         <article class="panel"><h3>Activity to opportunity</h3><div id="conversion"></div></article>
         <article class="panel"><h3>Gross to net</h3><div id="realization"></div></article>
       </div>
@@ -85,6 +114,12 @@
         <article class="panel"><h3>Pipeline age</h3><p class="fine">Open opportunities measured from 30 September 2026.</p><div id="age"></div></article>
         <article class="panel"><h3>Stage share</h3><div id="stages"></div></article>
       </div>
+      <article class="panel" style="margin-top:16px"><h3>Activity mix</h3><div id="activity-mix"></div></article>
+      <article class="panel" style="margin-top:16px">
+        <h3>Who to call</h3>
+        <p class="fine">Open pipeline, and either a win rate below the median in this slice or no activity since 1 July 2026. Eight accounts, largest pipeline first. The deals are the open opportunities on those accounts, three largest each. This is the synthetic book, not a Ferrara call plan.</p>
+        <div id="calls"></div>
+      </article>
       <article class="panel" style="margin-top:16px"><h3>Account scorecard</h3><div id="scorecard"></div></article>
     </section>
     <section id="analytics" class="tab" hidden>
@@ -92,33 +127,65 @@
       <h2>The same net, cut three ways.</h2>
       <div class="two">
         <article class="panel"><h3>Net sales by brand family</h3><div id="families"></div></article>
-        <article class="panel"><h3>Invoice month</h3><div id="months"></div></article>
+        <article class="panel"><h3 id="month-title">Net sales by fiscal year</h3><div id="months"></div></article>
       </div>
       <div class="two" style="margin-top:16px">
         <article class="panel"><h3>Gross margin by brand</h3><p class="fine">Net sales minus COGS. Not operating profit.</p><div id="margin"></div></article>
         <article class="panel"><h3>Trade rate by channel</h3><div id="trade"></div></article>
       </div>
       <article class="panel" style="margin-top:16px">
+        <h3>Book price bridge</h3>
+        <p class="fine">Gross, trade, net, COGS, and margin, summed from the channel waterfall. Margin is not operating profit.</p>
+        <div id="bridge"></div>
+      </article>
+      <article class="panel" style="margin-top:16px">
         <h3>Price waterfall by channel</h3>
-        <p class="fine">Gross, trade, net, COGS, and margin. Margin is not operating profit.</p>
+        <p class="fine">The same components, kept by channel.</p>
         <div id="waterfall"></div>
       </article>
       <div class="two" style="margin-top:16px">
-        <article class="panel"><h3>Family mix by quarter</h3><div id="mix"></div></article>
-        <article class="panel"><h3>Region by channel</h3><div id="region-channel"></div></article>
+        <article class="panel"><h3>Largest accounts</h3><div id="accounts"></div></article>
+        <article class="panel"><h3 id="geo-title">Net sales by region</h3><div id="regions"></div></article>
       </div>
+      <article class="panel" style="margin-top:16px">
+        <h3>Where each brand closes</h3>
+        <p class="fine">Win rate by family and channel. The wide gap is the close this book is missing. Not a syndicated rank.</p>
+        <div id="family-close"></div>
+      </article>
+      <article class="panel" style="margin-top:16px"><h3>Family mix by fiscal year</h3><div id="mix"></div></article>
+      <article class="panel" style="margin-top:16px"><h3 id="heat-title">Region by channel</h3><div id="region-channel"></div></article>
       <article class="panel" style="margin-top:16px"><h3>SKU rank inside each family</h3><div id="skus"></div></article>
+    </section>
+    <section id="supply" class="tab" hidden>
+      <p class="kicker">Receipts against the invoice book</p>
+      <h2>Where supply misses, and who holds the volume.</h2>
+      <p class="callout">These vendors are fictional. They are not Ferrara’s suppliers. Ordered units match the invoice book. The score is 40% fill, 30% on-time, 20% accepted quality, and 10% cost. This is not a forecast and not a planning system. An account login does not see this book.</p>
+      <article class="panel"><h3>Vendor scorecard</h3><p class="fine">Lowest score first.</p><div id="vendor-score"></div></article>
+      <div class="two" style="margin-top:16px">
+        <article class="panel"><h3>Fill by family</h3><p class="fine">Units short are ordered from the invoice book and not received.</p><div id="supply-fill"></div></article>
+        <article class="panel"><h3>Concentration</h3><p class="fine">Share held by the largest vendor in each family.</p><div id="supply-risk"></div></article>
+      </div>
+    </section>
+    <section id="operations" class="tab" hidden>
+      <p class="kicker">Published plants and campaigns</p>
+      <h2>What Ferrara has said, and what it has not.</h2>
+      <p class="callout">Plant names, the Orangeburg investment, and the named campaigns are sourced. Output, plant P&amp;L, media spend, and campaign scores are not in those releases, so those cells stay empty. The P&amp;L below is this synthetic book. It is not Ferrara’s.</p>
+      <article class="panel"><h3>Published facilities</h3><div id="facilities"></div></article>
+      <article class="panel" style="margin-top:16px"><h3>Published campaigns</h3><p class="fine">No spend was disclosed, so none is scored.</p><div id="campaigns"></div></article>
+      <article class="panel" style="margin-top:16px"><h3>Opportunities</h3><p class="fine">A published row is an announcement. A synthetic row is a gap in this book, and it is not a Ferrara opportunity. The chips change only the synthetic rows.</p><div id="opps"></div></article>
+      <article class="panel" style="margin-top:16px"><h3>Synthetic book P&amp;L</h3><p class="fine">Gross, trade, net, COGS, and margin from the invoice book in view. Operating profit is not published and is not invented here. The chips change this block only.</p><div id="book-pnl"></div></article>
     </section>
     <section id="market" class="tab" hidden>
       <p class="kicker">Public record</p>
       <h2>What the companies have published.</h2>
-      <p class="callout">These rows are sourced. They are not the synthetic book, and they do not share one denominator. Private peers are named with no estimated revenue. A 2023 share claim stays labeled as 2023.</p>
-      <article class="panel"><div id="market-table"></div></article>
+      <p class="callout">The published record is one table. Those rows are sourced. They are not the synthetic book, and they do not share one denominator. Filed private-peer cells stay empty. Labeled guesses are a separate panel and are not filings. A 2023 share claim stays labeled as 2023. The chips change Where to press. They do not change the table.</p>
+      <div id="compete"></div>
+      <article class="panel" id="compete-genie" hidden style="margin-top:16px"></article>
     </section>
     <section id="assistant" class="tab" hidden>
       <p class="kicker">Today versus proposed</p>
       <h2>An inbox, or an approved query.</h2>
-      <p class="fine">Left is an illustrative analyst inbox. Right is a deterministic router over this warehouse. It is not a language model, and it is not a reconstruction of a Ferrara system.</p>
+      <p class="fine">Left is an illustrative analyst inbox. Right is a deterministic router over this warehouse. The chips above apply to that question. A where-to-press question returns the Market plays from those same queries. A refusal still runs no SQL. It is not a language model, and it is not a reconstruction of a Ferrara system.</p>
       <div class="split">
         <article class="panel">
           <h3>Today</h3>
@@ -130,7 +197,10 @@
           <h3>Proposed</h3>
           <textarea id="q-next" rows="3">margin by brand</textarea>
           <div id="chips" class="chips"></div>
-          <p><button id="ask-next" type="button">Ask the governed router</button></p>
+          <p class="actions">
+            <button id="ask-next" type="button">Ask the governed router</button>
+            <button id="hear" class="ghost" type="button">Hear the answer</button>
+          </p>
           <pre id="out-next" class="out"></pre>
         </article>
       </div>
@@ -142,14 +212,16 @@
     <section id="lab" class="tab" hidden>
       <p class="kicker">Interview lab</p>
       <h2>Measure the router before a model speaks.</h2>
-      <p class="fine">A chained brief, a golden set, a scope pin, and a discovery lane that stays dark until it is real. Genie is not simulated.</p>
+      <p class="fine">A chained brief, a golden set, a scope pin, and one real Genie space. Genie is not simulated. A refusal is not sent. The Genie reply is labeled with its space title and is not this book.</p>
+      <label class="genie-q">Question for Genie<br /><input id="genie-q" type="text" value="margin by brand" /></label>
       <div class="actions">
         <button id="run-board" class="primary" type="button">Board brief</button>
+        <button id="hear-brief" class="ghost" type="button">Hear the brief</button>
         <button id="run-evals" class="ghost" type="button">Run evals</button>
         <button id="run-compare" class="ghost" type="button">Governed vs Genie</button>
         <button id="run-scope" class="ghost" type="button">Scope pin</button>
       </div>
-      <article class="panel" style="margin-top:16px"><pre id="lab-out" class="out">Run a lab action.</pre></article>
+      <article class="panel" style="margin-top:16px"><div id="lab-out" class="out">Run a lab action.</div></article>
       <div id="plan"></div>
     </section>
     <section id="catalog" class="tab" hidden>
@@ -162,6 +234,8 @@
       </article>
     </section>
   </main>
+  <footer class="site-contact">Contact: <a href="tel:+17733543532">773.354.3532</a> · <a href="mailto:therendle@gmail.com">therendle@gmail.com</a>. Demo author, not Ferrara.</footer>
+  <script src="/marks.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

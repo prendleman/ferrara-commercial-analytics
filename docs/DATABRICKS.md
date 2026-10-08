@@ -27,4 +27,4 @@ python3 scripts/databricks_load.py
 
 Then use the Databricks control in the app header. The switch probes `SELECT` through `USE SCHEMA` before it sticks. If the schema is missing, run the loader first.
 
-Genie is still not called.
+A compare sends the question to Genie only when `DATABRICKS_GENIE_SPACE_ID` is set and the router accepted a metric. The reply is labeled with the space title. It is not treated as this book. A refusal is not sent.

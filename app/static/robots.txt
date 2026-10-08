@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Allow: /aeo
+Allow: /llms.txt
+Disallow: /app
+Disallow: /api/
+
+# Answer-engine brief for this site:
+# https://ferrara.datasharkbi.com/llms.txt

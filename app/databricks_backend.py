@@ -7,9 +7,13 @@ session selected.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import threading
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,10 +60,12 @@ TABLES = {
         ("account_name", "STRING"),
         ("channel", "STRING"),
         ("region", "STRING"),
+        ("subregion", "STRING"),
         ("activity_date", "STRING"),
         ("activity_type", "STRING"),
         ("owner", "STRING"),
         ("opp_id", "STRING"),
+        ("fiscal_year", "STRING"),
     ),
     "gold_opportunity": (
         ("opp_id", "STRING"),
@@ -67,12 +73,14 @@ TABLES = {
         ("account_name", "STRING"),
         ("channel", "STRING"),
         ("region", "STRING"),
+        ("subregion", "STRING"),
         ("family", "STRING"),
         ("stage", "STRING"),
         ("status", "STRING"),
         ("opened_date", "STRING"),
         ("expected_net_cents", "BIGINT"),
         ("source_activity_id", "STRING"),
+        ("fiscal_year", "STRING"),
     ),
     "gold_invoice": (
         ("invoice_id", "STRING"),
@@ -80,6 +88,7 @@ TABLES = {
         ("account_name", "STRING"),
         ("channel", "STRING"),
         ("region", "STRING"),
+        ("subregion", "STRING"),
         ("sku_id", "STRING"),
         ("family", "STRING"),
         ("sku_name", "STRING"),
@@ -91,6 +100,25 @@ TABLES = {
         ("net_cents", "BIGINT"),
         ("cogs_cents", "BIGINT"),
         ("margin_cents", "BIGINT"),
+        ("fiscal_year", "STRING"),
+    ),
+    "gold_receipt": (
+        ("receipt_id", "STRING"),
+        ("vendor_id", "STRING"),
+        ("vendor_name", "STRING"),
+        ("vendor_role", "STRING"),
+        ("family", "STRING"),
+        ("channel", "STRING"),
+        ("region", "STRING"),
+        ("subregion", "STRING"),
+        ("fiscal_year", "STRING"),
+        ("receipts", "BIGINT"),
+        ("on_time_receipts", "BIGINT"),
+        ("units_ordered", "BIGINT"),
+        ("units_received", "BIGINT"),
+        ("reject_units", "BIGINT"),
+        ("cost_cents", "BIGINT"),
+        ("contract_cents", "BIGINT"),
     ),
     "public_context": (
         ("group_name", "STRING"),
@@ -228,8 +256,20 @@ def connection_status(config=None):
     }
 
 
-def genie_status():
-    space = os.environ.get("DATABRICKS_GENIE_SPACE_ID")
+def genie_space_id(environ=None, env_file=None):
+    if environ is None:
+        environ = os.environ
+    if environ.get("DATABRICKS_GENIE_SPACE_ID"):
+        return environ["DATABRICKS_GENIE_SPACE_ID"].strip()
+    if environ is not os.environ and env_file is None:
+        return ""
+    if env_file is None:
+        env_file = ROOT / ".env"
+    return (_parse_env_file(Path(env_file)).get("DATABRICKS_GENIE_SPACE_ID") or "").strip()
+
+
+def genie_status(environ=None, env_file=None):
+    space = genie_space_id(environ, env_file)
     if not space:
         return {
             "ok": False,
@@ -239,8 +279,117 @@ def genie_status():
     return {
         "ok": False,
         "called": False,
-        "error": "A Genie space id is present. This build still does not send the question. Promote the governed metric instead.",
+        "space_id": space,
+        "error": "A Genie space id is configured. A compare sends the question. A status check does not.",
     }
+
+
+def genie_answer_text(message):
+    parts = []
+    queries = []
+    for attachment in message.get("attachments") or []:
+        content = ((attachment.get("text") or {}).get("content") or "").strip()
+        if content:
+            parts.append(content)
+        query = ((attachment.get("query") or {}).get("query") or "").strip()
+        if query:
+            queries.append(query)
+    return "\n\n".join(parts), "\n\n".join(queries)
+
+
+def _genie_http(method, url, token, payload=None):
+    data = None if payload is None else json.dumps(payload).encode()
+    request = urllib.request.Request(
+        url,
+        data=data,
+        method=method,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            raw = response.read().decode()
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode()[:180]
+        raise RuntimeError(f"Genie HTTP {exc.code}: {detail}") from None
+    return json.loads(raw or "{}")
+
+
+def ask_genie(question, environ=None, env_file=None):
+    """Send one question to a real Genie space. Never invents a reply."""
+    space = genie_space_id(environ, env_file)
+    if not space:
+        return genie_status(environ, env_file)
+    config = resolve_config(environ=environ, env_file=env_file)
+    if not config["configured"]:
+        return {
+            "ok": False,
+            "called": False,
+            "space_id": space,
+            "error": "Databricks is not configured, so Genie was not called.",
+        }
+    host = config["hostname"]
+    token = config["token"]
+    try:
+        listing = _genie_http("GET", f"https://{host}/api/2.0/genie/spaces", token)
+        title = ""
+        for item in listing.get("spaces") or []:
+            if item.get("space_id") == space:
+                title = item.get("title") or ""
+                break
+        started = _genie_http(
+            "POST",
+            f"https://{host}/api/2.0/genie/spaces/{space}/start-conversation",
+            token,
+            {"content": (question or "").strip()[:500]},
+        )
+        message = started.get("message") if isinstance(started.get("message"), dict) else started
+        conversation = started.get("conversation") if isinstance(started.get("conversation"), dict) else {}
+        conversation_id = conversation.get("id") or started.get("conversation_id")
+        message_id = message.get("id") or message.get("message_id") or started.get("message_id")
+        if not conversation_id or not message_id:
+            return {
+                "ok": False,
+                "called": True,
+                "space_id": space,
+                "space_title": title,
+                "error": "Genie started a conversation without an id to poll.",
+            }
+        poll = f"https://{host}/api/2.0/genie/spaces/{space}/conversations/{conversation_id}/messages/{message_id}"
+        status = (message.get("status") or "").upper()
+        for _ in range(20):
+            if status in {"COMPLETED", "FAILED", "CANCELLED"}:
+                break
+            time.sleep(2)
+            payload = _genie_http("GET", poll, token)
+            message = payload.get("message") if isinstance(payload.get("message"), dict) else payload
+            status = (message.get("status") or "").upper()
+        text, sql = genie_answer_text(message)
+        if status != "COMPLETED" or not text:
+            error = message.get("error") or f"Genie status {status or 'UNKNOWN'}."
+            return {
+                "ok": False,
+                "called": True,
+                "space_id": space,
+                "space_title": title,
+                "status": status,
+                "error": str(error)[:240],
+            }
+        return {
+            "ok": True,
+            "called": True,
+            "space_id": space,
+            "space_title": title,
+            "status": status,
+            "answer": text,
+            "sql": sql,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "called": True,
+            "space_id": space,
+            "error": safe_error(exc),
+        }
 
 
 def safe_error(exc):
@@ -290,6 +439,7 @@ def connect(config=None):
         server_hostname=config["hostname"],
         http_path=config["http_path"],
         access_token=config["token"],
+        use_inline_params=True,
     )
 
 
@@ -378,9 +528,12 @@ def load_tables(cursor, local_conn, config):
             rows = [tuple(row) for row in local_conn.execute(f"SELECT {selected} FROM {table}")]
         if not rows:
             continue
-        placeholders = ", ".join(["%s"] * len(names))
-        cursor.executemany(
-            f"INSERT INTO {target} ({', '.join(names)}) VALUES ({placeholders})",
-            rows,
-        )
+        width = len(names)
+        columns = ", ".join(names)
+        for start in range(0, len(rows), 200):
+            batch = rows[start:start + 200]
+            tuple_sql = "(" + ", ".join(["%s"] * width) + ")"
+            values = ", ".join([tuple_sql] * len(batch))
+            flat = [cell for row in batch for cell in row]
+            cursor.execute(f"INSERT INTO {target} ({columns}) VALUES {values}", flat)
     return {table: "loaded" for table in TABLES}

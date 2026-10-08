@@ -3,32 +3,36 @@ from __future__ import annotations
 
 import argparse
 import json
+import threading
+from datetime import date, datetime
+from decimal import Decimal
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from app import demo_auth
 from app import lab
-from app.databricks_backend import ConfigError as DatabricksConfigError
 from app.databricks_backend import DatabricksStore
 from app.databricks_backend import connection_status as databricks_status
 from app.databricks_backend import resolve_config as databricks_config
-from app.databricks_backend import safe_error as databricks_safe_error
-from app.snowflake_backend import ConfigError as SnowflakeConfigError
 from app.snowflake_backend import SnowflakeStore
 from app.snowflake_backend import connection_status as snowflake_status
 from app.snowflake_backend import resolve_config as snowflake_config
 from app.snowflake_backend import safe_error as snowflake_safe_error
+from app.voice import VoiceError, speak
+from app.compete import compete_brief
 from app.core import (
     DB,
     EXAMPLES,
     METRICS,
+    SliceError,
     answer,
     catalog,
     connect,
     recent_audit,
     run_metric,
     seed,
+    slice_options,
     today_answer,
 )
 
@@ -36,15 +40,28 @@ STATIC = {
     "/": "marketing.html",
     "/login": "login.html",
     "/app": "index.html",
+    "/aeo": "aeo.html",
+    "/llms.txt": "llms.txt",
+    "/robots.txt": "robots.txt",
     "/app.js": "app.js",
+    "/marks.js": "marks.js",
     "/style.css": "style.css",
 }
 CTYPES = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
+    ".txt": "text/plain; charset=utf-8",
 }
 BACKEND_COOKIE = "fc_backend"
+
+
+def _json_ready(value):
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    raise TypeError(f"{type(value).__name__} is not JSON serializable")
 
 
 class Store:
@@ -69,44 +86,63 @@ class Handler(BaseHTTPRequestHandler):
     databricks = None
     snowflake = None
 
-    def _remote(self, name):
-        if name == "databricks":
-            return self.databricks
-        if name == "snowflake":
-            return self.snowflake
-        return None
+    def _request_filters(self, body):
+        return {key: body.get(key) or "" for key in ("channel", "region", "subregion", "family", "year")}
 
     def _backend_name(self):
-        for part in (self.headers.get("Cookie") or "").split(";"):
-            key, _, value = part.strip().partition("=")
-            if key == BACKEND_COOKIE and value in ("local", "databricks", "snowflake"):
-                if value != "local" and self._remote(value) is None:
-                    return "local"
-                return value
-        return "local"
+        return "integrated"
 
-    def _backend_cookie(self, name):
-        return f"{BACKEND_COOKIE}={name}; Path=/; HttpOnly; SameSite=Lax"
+    def _lane_note(self):
+        if self.snowflake is None:
+            book = "The local book is serving because Snowflake is not configured."
+        elif getattr(Handler, "snowflake_ok", None) is False:
+            book = "Snowflake did not connect, so the local book is serving."
+        else:
+            book = "Snowflake serves the commercial book."
+        if self.databricks is None:
+            genie = "Databricks is not configured, so Genie stays off."
+        else:
+            genie = "Databricks answers Genie only, and that space is not this book."
+        return f"SQLite keeps the audit and the public record. {book} {genie}"
+
+    def _tag(self, payload):
+        payload["backend"] = self._backend_name()
+        lane = getattr(self, "_lane", None) or {}
+        if lane.get("served_by"):
+            payload["served_by"] = lane["served_by"]
+        if lane.get("note"):
+            payload["lane_note"] = lane["note"]
+        return payload
+
+    def _integrated(self, fn):
+        self._lane = {"served_by": "local"}
+        with use_connection(self.store) as local:
+            remote = self.snowflake
+            if remote is None:
+                self._lane["note"] = "Snowflake is not configured. The local book is serving."
+                return fn(local, local)
+            try:
+                if not getattr(Handler, "snowflake_ok", False):
+                    remote.execute("SELECT 1 AS ok")
+                    Handler.snowflake_ok = True
+            except Exception as exc:
+                secret = remote.config.get("token") or remote.config.get("password")
+                Handler.snowflake_ok = False
+                self._lane["note"] = "Snowflake did not connect. The local book is serving. " + snowflake_safe_error(exc, secret)
+                return fn(local, local)
+            self._lane["served_by"] = "snowflake"
+            try:
+                return fn(remote, local)
+            except Exception as exc:
+                secret = remote.config.get("token") or remote.config.get("password")
+                self._lane = {
+                    "served_by": "local",
+                    "note": "Snowflake did not serve this query. The local book did. " + snowflake_safe_error(exc, secret),
+                }
+                return fn(local, local)
 
     def _with_reads(self, fn):
-        backend = self._backend_name()
-        remote = self._remote(backend)
-        try:
-            if remote is None:
-                with use_connection(self.store) as conn:
-                    return fn(conn, conn)
-            with use_connection(self.store) as audit:
-                return fn(remote, audit)
-        except (DatabricksConfigError, SnowflakeConfigError) as exc:
-            self._json(409, exc.payload)
-            return None
-        except Exception as exc:
-            cleaner = snowflake_safe_error if backend == "snowflake" else databricks_safe_error
-            secret = None
-            if backend == "snowflake" and self.snowflake is not None:
-                secret = self.snowflake.config.get("token") or self.snowflake.config.get("password")
-            self._json(502, {"error": cleaner(exc, secret) if backend == "snowflake" else cleaner(exc), "backend": backend})
-            return None
+        return self._integrated(fn)
 
     def log_message(self, fmt, *args):
         print("%s - %s" % (self.address_string(), fmt % args))
@@ -134,7 +170,7 @@ class Handler(BaseHTTPRequestHandler):
             self._head_only = False
 
     def _json(self, status, payload, extra_headers=None):
-        self._send(status, json.dumps(payload), "application/json", extra_headers)
+        self._send(status, json.dumps(payload, default=_json_ready), "application/json", extra_headers)
 
     def _redirect(self, location, extra_headers=None):
         self.send_response(302)
@@ -179,9 +215,10 @@ class Handler(BaseHTTPRequestHandler):
                     "examples": EXAMPLES,
                     "databricks": databricks_status(),
                     "snowflake": snowflake_status(),
-                    "backend": self._backend_name(),
+                    "backend": "integrated",
+                    "lane_note": self._lane_note(),
                 }
-            self._json(200, payload)
+            self._json(200, payload, [("Set-Cookie", f"{BACKEND_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax")])
             return
         sess = self._session()
         if not sess:
@@ -191,24 +228,46 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/catalog":
             def _catalog(read, _audit):
                 body = catalog(read)
-                body["backend"] = self._backend_name()
-                self._json(200, body)
+                self._json(200, self._tag(body))
             self._with_reads(_catalog)
             return
+        if path == "/api/slices":
+            with use_connection(self.store) as local:
+                self._json(200, slice_options(local))
+            return
         if path == "/api/metric":
-            name = parse_qs(parsed.query).get("name", [""])[0]
+            query = parse_qs(parsed.query)
+            name = query.get("name", [""])[0]
             if name not in METRICS:
                 self._json(400, {"error": "Unknown metric."})
                 return
-            def _metric(read, _audit):
-                rows = run_metric(read, name, account_id)
-                self._json(200, {
+            filters = {key: query.get(key, [""])[0] for key in ("channel", "region", "subregion", "family", "year")}
+            def _metric(read, audit):
+                source = audit if name == "public_landscape" else read
+                try:
+                    rows = run_metric(source, name, account_id, filters)
+                except SliceError:
+                    self._json(400, {"error": "Unknown slicer value."})
+                    return
+                self._json(200, self._tag({
                     "metric": name,
                     "description": METRICS[name]["description"],
                     "rows": rows,
-                    "backend": self._backend_name(),
-                })
+                    "filters": {key: value for key, value in filters.items() if value},
+                }))
             self._with_reads(_metric)
+            return
+        if path == "/api/compete":
+            query = parse_qs(parsed.query)
+            filters = {key: query.get(key, [""])[0] for key in ("channel", "region", "subregion", "family", "year")}
+            def _compete(read, audit):
+                try:
+                    body = compete_brief(read, audit, account_id, filters)
+                except SliceError:
+                    self._json(400, {"error": "Unknown slicer value."})
+                    return
+                self._json(200, self._tag(body))
+            self._with_reads(_compete)
             return
         if path == "/api/lab/plan":
             self._json(200, lab.plan())
@@ -248,38 +307,49 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"route": "today", "answer": today_answer(question), "engine": "illustrative inbox"})
                 return
             def _ask(read, audit):
-                payload = answer(read, question, sess["username"], sess.get("account_id"), audit_conn=audit)
-                payload["backend"] = self._backend_name()
-                self._json(200, payload)
+                try:
+                    payload = answer(
+                        read,
+                        question,
+                        sess["username"],
+                        sess.get("account_id"),
+                        audit_conn=audit,
+                        filters=self._request_filters(body),
+                    )
+                except SliceError:
+                    self._json(400, {"error": "Unknown slicer value."})
+                    return
+                self._json(200, self._tag(payload))
             self._with_reads(_ask)
             return
-        if path == "/api/backend":
-            choice = body.get("backend")
-            if choice not in ("local", "databricks", "snowflake"):
-                self._json(400, {"error": "Backend must be local, databricks, or snowflake."})
-                return
-            if choice in ("databricks", "snowflake"):
-                remote = self._remote(choice)
-                status = databricks_status() if choice == "databricks" else snowflake_status()
-                label = "Databricks" if choice == "databricks" else "Snowflake"
-                if remote is None:
-                    self._json(409, {
-                        "error": f"{label} is not configured.",
-                        "missing": status["missing"],
-                        "loader": status["loader"],
-                    })
-                    return
+        if path == "/api/speak":
+            question = (body.get("question") or "").strip()
+            source = body.get("source") or "answer"
+
+            def _speak(read, _audit):
+                if source == "board":
+                    text = lab.board_brief(read, sess.get("account_id"))["narrative"]
+                else:
+                    try:
+                        payload = answer(
+                            read,
+                            question,
+                            sess["username"],
+                            sess.get("account_id"),
+                            filters=self._request_filters(body),
+                        )
+                    except SliceError:
+                        self._json(400, {"error": "Unknown slicer value."})
+                        return
+                    text = payload.get("answer") or ""
                 try:
-                    remote.execute("SELECT 1 AS ok")
-                except Exception as exc:
-                    if choice == "snowflake":
-                        secret = remote.config.get("token") or remote.config.get("password")
-                        message = snowflake_safe_error(exc, secret)
-                    else:
-                        message = databricks_safe_error(exc)
-                    self._json(502, {"error": message, "backend": choice})
+                    audio = speak(text)
+                except VoiceError as exc:
+                    self._json(409, {"error": str(exc)})
                     return
-            self._json(200, {"backend": choice}, [("Set-Cookie", self._backend_cookie(choice))])
+                self._send(200, audio, "audio/mpeg")
+
+            self._with_reads(_speak)
             return
         if path in {"/api/lab/board", "/api/lab/evals", "/api/lab/compare", "/api/lab/scope"}:
             def _lab(read, audit):
@@ -297,8 +367,7 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 else:
                     payload = lab.scope_pin(read, body.get("metric") or "net_by_channel")
-                payload["backend"] = self._backend_name()
-                self._json(200, payload)
+                self._json(200, self._tag(payload))
             self._with_reads(_lab)
             return
         self._json(404, {"error": "Not found."})
@@ -315,6 +384,17 @@ def main():
     snow = snowflake_config()
     Handler.databricks = DatabricksStore(dbx) if dbx["configured"] else None
     Handler.snowflake = SnowflakeStore(snow) if snow["configured"] else None
+
+    def _warm_snowflake():
+        if Handler.snowflake is None:
+            return
+        try:
+            Handler.snowflake.warm()
+            Handler.snowflake_ok = True
+        except Exception:
+            Handler.snowflake_ok = False
+
+    threading.Thread(target=_warm_snowflake, name="snowflake-warm", daemon=True).start()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Ferrara commercial demo at http://{args.host}:{args.port}")
     server.serve_forever()

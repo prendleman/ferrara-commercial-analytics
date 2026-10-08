@@ -168,7 +168,8 @@ def ddl_statements(config):
     ]
     for table, columns in TABLES.items():
         body = ", ".join(f"{name} {TYPE_MAP[kind]}" for name, kind in columns)
-        statements.append(f"CREATE TABLE IF NOT EXISTS {qualified(config, table)} ({body})")
+        statements.append(f"DROP TABLE IF EXISTS {qualified(config, table)}")
+        statements.append(f"CREATE TABLE {qualified(config, table)} ({body})")
     return statements
 
 
@@ -189,12 +190,10 @@ def connect(config=None):
         "user": config["user"],
         "role": config["role"],
         "warehouse": config["warehouse"],
-        "database": config["database"],
-        "schema": config["schema"],
         "session_parameters": {"QUERY_TAG": "ferrara-commercial-demo"},
         "client_session_keep_alive": True,
         "login_timeout": 20,
-        "network_timeout": 60,
+        "network_timeout": 180,
     }
     if config.get("token"):
         kwargs["authenticator"] = "PROGRAMMATIC_ACCESS_TOKEN"
@@ -223,16 +222,19 @@ class Result:
         return list(self._rows)
 
 
+POOL_SIZE = 4
+
+
 class SnowflakeStore:
-    """One Snowflake session. Metric SQL matches SQLite, with ? rebound as %s."""
+    """A small pool of Snowflake sessions. Metric SQL matches SQLite, with ? rebound as %s."""
 
     def __init__(self, config=None):
         self.config = config or resolve_config()
-        self._conn = None
-        self._ready = False
+        self._idle = []
         self._lock = threading.Lock()
+        self._slots = threading.BoundedSemaphore(POOL_SIZE)
 
-    def _cursor(self):
+    def _open(self):
         if not self.config["configured"]:
             raise ConfigError(
                 {
@@ -241,34 +243,101 @@ class SnowflakeStore:
                     "loader": self.config["loader"],
                 }
             )
+        conn = connect(self.config)
+        cursor = conn.cursor()
+        try:
+            cursor.execute(f"USE DATABASE {self.config['database']}")
+            cursor.execute(f"USE SCHEMA {self.config['schema']}")
+        finally:
+            cursor.close()
+        return conn
+
+    def warm(self, count=POOL_SIZE):
+        opened = []
+        try:
+            for _ in range(count):
+                opened.append(self._open())
+        except Exception:
+            for conn in opened:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            raise
+        for conn in opened:
+            self._release(conn)
+
+    def _borrow(self):
         with self._lock:
-            if self._conn is None:
-                self._conn = connect(self.config)
-            cursor = self._conn.cursor()
-            if not self._ready:
-                cursor.execute(f"USE DATABASE {self.config['database']}")
-                cursor.execute(f"USE SCHEMA {self.config['schema']}")
-                self._ready = True
-            return cursor
+            if self._idle:
+                return self._idle.pop()
+        return self._open()
+
+    def _release(self, conn):
+        with self._lock:
+            if len(self._idle) < POOL_SIZE:
+                self._idle.append(conn)
+                return
+        conn.close()
 
     def execute(self, sql, params=()):
-        cursor = self._cursor()
-        cursor.execute(qmark_to_pyformat(sql), list(params) if params else None)
-        if not cursor.description:
-            return Result([])
-        columns = [col[0].lower() for col in cursor.description]
-        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
-        return Result(rows)
+        self._slots.acquire()
+        conn = None
+        try:
+            conn = self._borrow()
+            cursor = conn.cursor()
+            try:
+                cursor.execute(qmark_to_pyformat(sql), list(params) if params else None)
+                if not cursor.description:
+                    return Result([])
+                columns = [col[0].lower() for col in cursor.description]
+                rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                return Result(rows)
+            finally:
+                cursor.close()
+        except Exception:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                conn = None
+            raise
+        finally:
+            if conn is not None:
+                self._release(conn)
+            self._slots.release()
 
     def commit(self):
         return None
 
     def close(self):
         with self._lock:
-            if self._conn is not None:
-                self._conn.close()
-                self._conn = None
-                self._ready = False
+            idle = self._idle
+            self._idle = []
+        for conn in idle:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def load_table(cursor, local_conn, config, table):
+    """Create and fill one serving table. Other tables stay in place."""
+    columns = TABLES[table]
+    names = [name for name, _kind in columns]
+    body = ", ".join(f"{name} {TYPE_MAP[kind]}" for name, kind in columns)
+    target = qualified(config, table)
+    cursor.execute(f"CREATE OR REPLACE TABLE {target} ({body})")
+    selected = ", ".join(names)
+    rows = [tuple(row) for row in local_conn.execute(f"SELECT {selected} FROM {table}")]
+    if not rows:
+        return 0
+    placeholders = ", ".join(["%s"] * len(names))
+    statement = f"INSERT INTO {target} ({', '.join(names)}) VALUES ({placeholders})"
+    for start in range(0, len(rows), 2000):
+        cursor.executemany(statement, rows[start:start + 2000])
+    return len(rows)
 
 
 def load_tables(cursor, local_conn, config):
@@ -290,8 +359,7 @@ def load_tables(cursor, local_conn, config):
         if not rows:
             continue
         placeholders = ", ".join(["%s"] * len(names))
-        cursor.executemany(
-            f"INSERT INTO {target} ({', '.join(names)}) VALUES ({placeholders})",
-            rows,
-        )
+        statement = f"INSERT INTO {target} ({', '.join(names)}) VALUES ({placeholders})"
+        for start in range(0, len(rows), 2000):
+            cursor.executemany(statement, rows[start:start + 2000])
     return {table: "loaded" for table in TABLES}

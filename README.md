@@ -4,7 +4,7 @@ Synthetic interview demo for a Ferrara-flavored commercial book: CRM activity, o
 
 Public Ferrara brand names are flavor only. Accounts, people, and dollars are generated. This is not Ferrara or Ferrero production data, and it is not commissioned client work.
 
-This demo stands on its own. Python 3.9+ standard library for the local book. Databricks and Snowflake are optional read paths for the same metric SQL, and they stay dark until credentials are present.
+This demo stands on its own. Python 3.9+ standard library for the local book. Snowflake serves the commercial book when credentials are present. Databricks answers Genie only, and that space is not this book. SQLite keeps the audit and the published record.
 
 ## Start
 
@@ -33,7 +33,7 @@ Source: https://github.com/prendleman/ferrara-commercial-analytics
 - Refusals for syndicated share, demand-planning forecasts, and MDM / S/4 claims
 - Market tab: published Ferrara, affiliate, and peer figures with sources. Private peers have no invented revenue
 - Lab: board brief, golden evals, scope pin, governed-vs-Genie compare, 90-day plan
-- Header switch runs the same metric SQL on SQLite, Databricks, or Snowflake. See `docs/DATABRICKS.md` and `docs/SNOWFLAKE.md`. Audit stays local. A warehouse is used only when its credentials are present
+- One lane: SQLite for the audit and the published record, Snowflake for the book, Databricks for Genie only. See `docs/DATABRICKS.md` and `docs/SNOWFLAKE.md`
 - Today panel: an illustrative analyst inbox, not a claim about Ferrara’s internal tools
 
 ## Tests
@@ -42,4 +42,4 @@ Source: https://github.com/prendleman/ferrara-commercial-analytics
 python3 -m unittest discover -s tests -v
 ```
 
-Walkthrough: `docs/DEMO_SCRIPT.md`.
+Full reference: `docs/FULL.md`. Walkthrough: `docs/DEMO_SCRIPT.md`.

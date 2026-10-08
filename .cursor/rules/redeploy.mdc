@@ -1,0 +1,20 @@
+---
+description: Redeploy the public Ferrara demo after local changes
+alwaysApply: true
+---
+
+# Redeploy
+
+After a change to the demo, redeploy the public site before finishing. Do this even when the user did not say deploy.
+
+From the repo root:
+
+```sh
+~/.fly/bin/flyctl deploy --ha=false
+```
+
+The Fly app is `ferrara-commercial-analytics`. The public hostname is https://ferrara.datasharkbi.com. `flyctl deploy` ships the local working tree. Do not commit or push unless the user asks.
+
+Do not deploy `.env` or warehouse credentials. Do not set Fly secrets unless the user asks. Do not print tokens, PATs, or API keys.
+
+After the deploy, check the public hostname with a browser user agent. Cloudflare rejects the default Python agent with 403. Confirm the change is on https://ferrara.datasharkbi.com.

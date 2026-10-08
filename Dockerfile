@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
     https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
   && chmod +x /usr/local/bin/cloudflared
 
+COPY requirements-snowflake.txt ./
+RUN pip install --no-cache-dir -r requirements-snowflake.txt
+
 COPY app ./app
 COPY scripts/start_hosted.sh ./scripts/start_hosted.sh
 COPY sql ./sql
