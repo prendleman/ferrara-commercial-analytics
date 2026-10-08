@@ -31,6 +31,12 @@ function stat(label, value) {
   return `<article class="stat"><span>${esc(label)}</span><b>${esc(value)}</b></article>`;
 }
 
+function table(headers, rows) {
+  const head = headers.map((header) => `<th>${esc(header)}</th>`).join("");
+  const body = rows.map((row) => `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join("")}</tr>`).join("");
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
 async function metric(name) {
   return api(`/api/metric?name=${encodeURIComponent(name)}`);
 }
@@ -54,6 +60,10 @@ async function renderOverview() {
   ].join("");
   const channels = await metric("net_by_channel");
   document.getElementById("channels").innerHTML = bars(channels.rows, "channel", "net_sales", (value) => money.format(value));
+  const season = await metric("season_index");
+  document.getElementById("season").innerHTML = bars(season.rows, "invoice_month", "index_vs_january", (value) => `${value}`);
+  const halloween = await metric("halloween_window");
+  document.getElementById("halloween").innerHTML = bars(halloween.rows, "season_window", "net_sales", (value) => money.format(value));
 }
 
 async function renderCommercial() {
@@ -70,6 +80,23 @@ async function renderCommercial() {
     "net_sales",
     (value, row) => `${money.format(value)} · ${row.realization_pct}%`
   );
+  const age = await metric("pipeline_age");
+  document.getElementById("age").innerHTML = bars(age.rows, "age_band", "expected_net", (value) => money.format(value));
+  const stages = await metric("stage_conversion");
+  document.getElementById("stages").innerHTML = bars(stages.rows, "stage", "share_pct", (value) => `${value}%`);
+  const scorecard = await metric("account_scorecard");
+  document.getElementById("scorecard").innerHTML = table(
+    ["Account", "Channel", "Net", "Trade", "Win rate", "Open pipeline", "Last activity"],
+    scorecard.rows.map((row) => [
+      row.account_name,
+      row.channel,
+      money.format(row.net_sales),
+      `${row.trade_pct}%`,
+      `${row.win_rate}%`,
+      money.format(row.open_pipeline),
+      row.last_activity,
+    ])
+  );
 }
 
 async function renderAnalytics() {
@@ -81,6 +108,33 @@ async function renderAnalytics() {
   document.getElementById("margin").innerHTML = bars(margin.rows, "family", "margin_pct", (value) => `${value}%`);
   const trade = await metric("trade_by_channel");
   document.getElementById("trade").innerHTML = bars(trade.rows, "channel", "trade_pct", (value) => `${value}%`);
+  const waterfall = await metric("waterfall_by_channel");
+  document.getElementById("waterfall").innerHTML = table(
+    ["Channel", "Gross", "Trade", "Net", "COGS", "Margin"],
+    waterfall.rows.map((row) => [
+      row.channel,
+      money.format(row.gross_sales),
+      money.format(row.trade_spend),
+      money.format(row.net_sales),
+      money.format(row.cogs),
+      money.format(row.margin),
+    ])
+  );
+  const mix = await metric("family_mix_by_quarter");
+  document.getElementById("mix").innerHTML = table(
+    ["Quarter", "Family", "Net"],
+    mix.rows.map((row) => [row.quarter, row.family, money.format(row.net_sales)])
+  );
+  const cells = await metric("region_by_channel");
+  document.getElementById("region-channel").innerHTML = table(
+    ["Region", "Channel", "Net"],
+    cells.rows.map((row) => [row.region, row.channel, money.format(row.net_sales)])
+  );
+  const skus = await metric("sku_rank");
+  document.getElementById("skus").innerHTML = table(
+    ["Family", "SKU", "Net", "Units"],
+    skus.rows.map((row) => [row.family, row.sku_name, money.format(row.net_sales), Number(row.units).toLocaleString()])
+  );
 }
 
 function renderAudit(rows) {
@@ -120,11 +174,15 @@ async function renderLab() {
   const plan = await api("/api/lab/plan");
   renderPlan(plan);
   const status = await api("/api/session");
-  const warehouse = status.databricks;
-  const detail = warehouse.configured
-    ? warehouseStatus(warehouse)
-    : `Databricks is not attached on this host. Missing ${warehouse.missing.join(", ")}`;
-  document.getElementById("lab-out").textContent = `${detail}. Active backend ${status.backend}. Loader: ${warehouse.loader}`;
+  const databricks = status.databricks;
+  const snowflake = status.snowflake;
+  const databricksDetail = databricks.configured
+    ? `Databricks ${warehouseStatus(databricks)}`
+    : `Databricks is not attached. Missing ${databricks.missing.join(", ")}`;
+  const snowflakeDetail = snowflake.configured
+    ? `Snowflake ${snowflake.database}.${snowflake.schema}`
+    : `Snowflake is not attached. Missing ${snowflake.missing.join(", ")}`;
+  document.getElementById("lab-out").textContent = `${databricksDetail}. ${snowflakeDetail}. Active backend ${status.backend}.`;
 }
 
 async function renderCatalog() {
@@ -182,8 +240,10 @@ async function chooseBackend(backend) {
   const payload = await response.json();
   if (!response.ok) {
     const quiet = payload.missing
-      ? "This site reads the SQLite book. No Databricks warehouse is attached."
-      : (payload.error || "Databricks did not connect.");
+      ? (String(payload.error || "").includes("Snowflake")
+        ? "This site reads the SQLite book. No Snowflake database is attached."
+        : "This site reads the SQLite book. No Databricks warehouse is attached.")
+      : (payload.error || "The warehouse did not connect.");
     showBackendNote(quiet);
     return;
   }
@@ -197,16 +257,25 @@ async function boot() {
     return;
   }
   document.getElementById("who").textContent = `${session.user.label} · ${session.user.username}`;
-  const warehouse = session.databricks;
   document.querySelectorAll("#backend-switch button").forEach((button) => {
     button.classList.toggle("active", button.dataset.backend === session.backend);
     button.addEventListener("click", () => chooseBackend(button.dataset.backend));
   });
-  const databricksButton = document.querySelector('#backend-switch button[data-backend="databricks"]');
-  if (!warehouse.configured && databricksButton) {
-    databricksButton.title = "No warehouse is attached on this host.";
+  const quietTitle = "No warehouse is attached on this host.";
+  if (!session.databricks.configured) {
+    const button = document.querySelector('#backend-switch button[data-backend="databricks"]');
+    if (button) button.title = quietTitle;
   }
-  showBackendNote(session.backend === "databricks" && warehouse.configured ? warehouseStatus(warehouse) : "");
+  if (!session.snowflake.configured) {
+    const button = document.querySelector('#backend-switch button[data-backend="snowflake"]');
+    if (button) button.title = quietTitle;
+  }
+  let note = "";
+  if (session.backend === "databricks" && session.databricks.configured) note = warehouseStatus(session.databricks);
+  if (session.backend === "snowflake" && session.snowflake.configured) {
+    note = `Reading ${session.snowflake.database}.${session.snowflake.schema}`;
+  }
+  showBackendNote(note);
   document.getElementById("chips").innerHTML = session.examples.map((example) => `<button type="button" data-example="${esc(example)}">${esc(example)}</button>`).join("");
   document.getElementById("chips").addEventListener("click", (event) => {
     const example = event.target.dataset.example;

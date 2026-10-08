@@ -15,7 +15,7 @@
       <span class="wordmark">Ferrara</span>
       <div>
         <strong>Commercial Analytics</strong>
-        <small>Synthetic book · public brand language</small>
+        <small>Inspiring Sweetness · synthetic book</small>
       </div>
       <span class="banner">SYNTHETIC</span>
     </div>
@@ -24,6 +24,7 @@
         <span class="switch" id="backend-switch">
           <button type="button" data-backend="local">SQLite</button>
           <button type="button" data-backend="databricks">Databricks</button>
+          <button type="button" data-backend="snowflake">Snowflake</button>
         </span>
         <span class="who" id="who"></span>
         <button id="logout" class="ghost" type="button">Log out</button>
@@ -56,6 +57,18 @@
           <div id="channels"></div>
         </article>
       </div>
+      <div class="two" style="margin-top:16px">
+        <article class="panel">
+          <h3>Season index</h3>
+          <p class="fine">January 2026 is 100.</p>
+          <div id="season"></div>
+        </article>
+        <article class="panel">
+          <h3>Halloween window</h3>
+          <p class="fine">Nerds, Trolli, SweeTarts, and Laffy Taffy in September and October.</p>
+          <div id="halloween"></div>
+        </article>
+      </div>
     </section>
     <section id="commercial" class="tab" hidden>
       <p class="kicker">Activity, opportunity, invoice</p>
@@ -68,6 +81,11 @@
         <article class="panel"><h3>Activity to opportunity</h3><div id="conversion"></div></article>
         <article class="panel"><h3>Gross to net</h3><div id="realization"></div></article>
       </div>
+      <div class="two" style="margin-top:16px">
+        <article class="panel"><h3>Pipeline age</h3><p class="fine">Open opportunities measured from 30 September 2026.</p><div id="age"></div></article>
+        <article class="panel"><h3>Stage share</h3><div id="stages"></div></article>
+      </div>
+      <article class="panel" style="margin-top:16px"><h3>Account scorecard</h3><div id="scorecard"></div></article>
     </section>
     <section id="analytics" class="tab" hidden>
       <p class="kicker">Brand, season, margin</p>
@@ -80,6 +98,16 @@
         <article class="panel"><h3>Gross margin by brand</h3><p class="fine">Net sales minus COGS. Not operating profit.</p><div id="margin"></div></article>
         <article class="panel"><h3>Trade rate by channel</h3><div id="trade"></div></article>
       </div>
+      <article class="panel" style="margin-top:16px">
+        <h3>Price waterfall by channel</h3>
+        <p class="fine">Gross, trade, net, COGS, and margin. Margin is not operating profit.</p>
+        <div id="waterfall"></div>
+      </article>
+      <div class="two" style="margin-top:16px">
+        <article class="panel"><h3>Family mix by quarter</h3><div id="mix"></div></article>
+        <article class="panel"><h3>Region by channel</h3><div id="region-channel"></div></article>
+      </div>
+      <article class="panel" style="margin-top:16px"><h3>SKU rank inside each family</h3><div id="skus"></div></article>
     </section>
     <section id="market" class="tab" hidden>
       <p class="kicker">Public record</p>
@@ -114,7 +142,7 @@
     <section id="lab" class="tab" hidden>
       <p class="kicker">Interview lab</p>
       <h2>Measure the router before a model speaks.</h2>
-      <p class="fine">Same shape as the Visual Comfort lab: a chained brief, a golden set, a scope pin, and a discovery lane that stays dark until it is real. Genie is not simulated.</p>
+      <p class="fine">A chained brief, a golden set, a scope pin, and a discovery lane that stays dark until it is real. Genie is not simulated.</p>
       <div class="actions">
         <button id="run-board" class="primary" type="button">Board brief</button>
         <button id="run-evals" class="ghost" type="button">Run evals</button>

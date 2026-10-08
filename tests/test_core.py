@@ -95,6 +95,35 @@ class WarehouseTests(unittest.TestCase):
         self.assertGreater(rows["2025-10"], rows["2026-01"])
         self.assertGreater(rows["2026-09"], rows["2026-01"])
 
+    def test_waterfall_season_scorecard_and_mix(self):
+        channel = self._sum("net_by_channel", "net_sales")
+        waterfall = self._sum("waterfall_by_channel", "net_sales")
+        self.assertAlmostEqual(channel, waterfall, places=2)
+        for row in run_metric(self.conn, "waterfall_by_channel"):
+            self.assertAlmostEqual(row["gross_sales"] - row["trade_spend"], row["net_sales"], places=1)
+            self.assertAlmostEqual(row["net_sales"] - row["cogs"], row["margin"], places=1)
+        season = {row["invoice_month"]: row["index_vs_january"] for row in run_metric(self.conn, "season_index")}
+        self.assertEqual(season["2026-01"], 100.0)
+        self.assertGreater(season["2025-10"], season["2026-01"])
+        windows = {row["season_window"]: row["net_sales"] for row in run_metric(self.conn, "halloween_window")}
+        self.assertIn("Halloween window", windows)
+        self.assertGreater(windows["Rest of book"], windows["Halloween window"])
+        scorecard = run_metric(self.conn, "account_scorecard", "ACCT-0001")
+        self.assertEqual(len(scorecard), 1)
+        self.assertEqual(scorecard[0]["account_name"], "Lakeshore Grocery")
+        self.assertIsNotNone(scorecard[0]["last_activity"])
+        open_pipeline = self._sum("pipeline_by_stage", "opportunities")
+        aged = self._sum("pipeline_age", "opportunities")
+        self.assertEqual(open_pipeline, aged)
+        mix = run_metric(self.conn, "family_mix_by_quarter")
+        self.assertIn("2025 Q4", {row["quarter"] for row in mix})
+        skus = run_metric(self.conn, "sku_rank")
+        self.assertEqual(len(skus), 16)
+        self.assertEqual(answer(self.conn, "pipeline age", "operator")["metric"], "pipeline_age")
+        self.assertEqual(answer(self.conn, "price waterfall by channel", "operator")["metric"], "waterfall_by_channel")
+        cells = self._sum("region_by_channel", "net_sales")
+        self.assertAlmostEqual(cells, channel, places=2)
+
 
 class PublicAndLabTests(unittest.TestCase):
     def setUp(self):
@@ -172,6 +201,32 @@ class PublicAndLabTests(unittest.TestCase):
         self.assertIn("bronze_activity", ddl)
         self.assertEqual(qmark_to_pyformat("SELECT * FROM gold_invoice WHERE account_id = ?"), "SELECT * FROM gold_invoice WHERE account_id = %s")
         self.assertIn("dapi…", safe_error(RuntimeError("rejected dapiSECRETVALUE")))
+
+    def test_snowflake_is_ferrara_and_dark_without_credentials(self):
+        from app.snowflake_backend import connection_status, ddl_statements, resolve_config, safe_error
+
+        status = connection_status(resolve_config(environ={}, env_file=Path("/no/such.env"), profile_file=Path("/no/such.toml")))
+        self.assertFalse(status["configured"])
+        self.assertIn("SNOWFLAKE_PAT", status["missing"])
+        self.assertIn("01_commercial.sql", status["sql_files"])
+        self.assertEqual(status["database"], "FERRARA_COMMERCIAL")
+        profile = Path(self.tmp.name) / "connections.toml"
+        profile.write_text(
+            "[aq_vc_reader]\naccount = OLD\nuser = VC\ntoken = vcSECRET\n\n"
+            "[ferrara]\naccount = ORG-ACCOUNT\nuser = FERRARA_READER_USER\ntoken = patSECRETVALUE\n"
+        )
+        config = resolve_config(environ={}, env_file=Path("/no/such.env"), profile_file=profile)
+        self.assertTrue(config["configured"])
+        self.assertEqual(config["account"], "ORG-ACCOUNT")
+        self.assertEqual(config["database"], "FERRARA_COMMERCIAL")
+        self.assertEqual(config["source"], "connections.toml")
+        public = connection_status(config)
+        self.assertNotIn("patSECRETVALUE", str(public))
+        ddl = "\n".join(ddl_statements(config))
+        self.assertIn("CREATE DATABASE IF NOT EXISTS FERRARA_COMMERCIAL", ddl)
+        self.assertNotIn("VC_RETAIL", ddl)
+        self.assertNotIn("SNOWFLAKE_SAMPLE_DATA", ddl)
+        self.assertIn("…", safe_error(RuntimeError("rejected patSECRETVALUE"), "patSECRETVALUE"))
 
 
 class AuthTests(unittest.TestCase):

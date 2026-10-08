@@ -1,7 +1,6 @@
 """Interview lab: board brief, golden evals, scope pin, Genie compare, 90-day plan.
 
-Adapted from the Visual Comfort lab shape. Numbers come from this demo's
-approved metrics. Genie is not simulated.
+Numbers come from this demo's approved metrics. Genie is not simulated.
 """
 from __future__ import annotations
 
@@ -25,6 +24,12 @@ EVAL_CASES = [
     {"id": "trade", "lane": "metric", "question": "trade spend by channel", "expect": "metric", "metric": "trade_by_channel"},
     {"id": "margin", "lane": "metric", "question": "margin by brand", "expect": "metric", "metric": "margin_by_family"},
     {"id": "season", "lane": "metric", "question": "halloween season", "expect": "metric", "metric": "net_by_month"},
+    {"id": "waterfall", "lane": "metric", "question": "price waterfall by channel", "expect": "metric", "metric": "waterfall_by_channel"},
+    {"id": "index", "lane": "metric", "question": "season index versus january", "expect": "metric", "metric": "season_index"},
+    {"id": "scorecard", "lane": "metric", "question": "account scorecard", "expect": "metric", "metric": "account_scorecard"},
+    {"id": "age", "lane": "metric", "question": "pipeline age", "expect": "metric", "metric": "pipeline_age"},
+    {"id": "mix", "lane": "metric", "question": "family mix by quarter", "expect": "metric", "metric": "family_mix_by_quarter"},
+    {"id": "sku", "lane": "metric", "question": "sku rank", "expect": "metric", "metric": "sku_rank"},
     {"id": "channel", "lane": "metric", "question": "net sales by channel", "expect": "metric", "metric": "net_by_channel"},
     {"id": "peers", "lane": "metric", "question": "show the public competitive set", "expect": "metric", "metric": "public_landscape"},
     {"id": "nielsen", "lane": "refuse", "question": "what is our Nielsen share", "expect": "refuse"},

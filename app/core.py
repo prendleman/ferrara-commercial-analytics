@@ -339,6 +339,166 @@ METRICS = {
             LIMIT 12
         """,
     },
+    "waterfall_by_channel": {
+        "description": "Gross, trade, net, COGS, and margin by channel.",
+        "sql": """
+            SELECT channel,
+                   ROUND(SUM(gross_cents)/100.0, 2) AS gross_sales,
+                   ROUND(SUM(trade_cents)/100.0, 2) AS trade_spend,
+                   ROUND(SUM(net_cents)/100.0, 2) AS net_sales,
+                   ROUND(SUM(cogs_cents)/100.0, 2) AS cogs,
+                   ROUND(SUM(margin_cents)/100.0, 2) AS margin
+            FROM gold_invoice
+            WHERE 1=1 {scope}
+            GROUP BY channel
+            ORDER BY net_sales DESC
+        """,
+    },
+    "waterfall_by_family": {
+        "description": "Gross, trade, net, COGS, and margin by brand family.",
+        "sql": """
+            SELECT family,
+                   ROUND(SUM(gross_cents)/100.0, 2) AS gross_sales,
+                   ROUND(SUM(trade_cents)/100.0, 2) AS trade_spend,
+                   ROUND(SUM(net_cents)/100.0, 2) AS net_sales,
+                   ROUND(SUM(cogs_cents)/100.0, 2) AS cogs,
+                   ROUND(SUM(margin_cents)/100.0, 2) AS margin
+            FROM gold_invoice
+            WHERE 1=1 {scope}
+            GROUP BY family
+            ORDER BY net_sales DESC
+        """,
+    },
+    "waterfall_by_account": {
+        "description": "Gross, trade, net, COGS, and margin for the largest accounts.",
+        "sql": """
+            SELECT account_name, channel,
+                   ROUND(SUM(gross_cents)/100.0, 2) AS gross_sales,
+                   ROUND(SUM(trade_cents)/100.0, 2) AS trade_spend,
+                   ROUND(SUM(net_cents)/100.0, 2) AS net_sales,
+                   ROUND(SUM(cogs_cents)/100.0, 2) AS cogs,
+                   ROUND(SUM(margin_cents)/100.0, 2) AS margin
+            FROM gold_invoice
+            WHERE 1=1 {scope}
+            GROUP BY account_name, channel
+            ORDER BY net_sales DESC
+            LIMIT 12
+        """,
+    },
+    "season_index": {
+        "description": "Invoice-month net sales indexed to January 2026.",
+        "sql": """
+            WITH monthly AS (
+              SELECT substr(invoice_date, 1, 7) AS invoice_month, SUM(net_cents) AS net_cents
+              FROM gold_invoice
+              WHERE 1=1 {scope}
+              GROUP BY substr(invoice_date, 1, 7)
+            )
+            SELECT invoice_month,
+                   ROUND(net_cents/100.0, 2) AS net_sales,
+                   ROUND(100.0 * net_cents / NULLIF((SELECT net_cents FROM monthly WHERE invoice_month = '2026-01'), 0), 1) AS index_vs_january
+            FROM monthly
+            ORDER BY invoice_month
+        """,
+    },
+    "halloween_window": {
+        "description": "Halloween-family net sales in September and October, beside the rest of the book.",
+        "sql": """
+            SELECT CASE
+                     WHEN family IN ('Nerds', 'Trolli', 'SweeTarts', 'Laffy Taffy')
+                      AND substr(invoice_date, 6, 2) IN ('09', '10')
+                     THEN 'Halloween window'
+                     ELSE 'Rest of book'
+                   END AS season_window,
+                   ROUND(SUM(net_cents)/100.0, 2) AS net_sales
+            FROM gold_invoice
+            WHERE 1=1 {scope}
+            GROUP BY 1
+            ORDER BY net_sales DESC
+        """,
+    },
+    "account_scorecard": {
+        "description": "Account net sales, trade rate, win rate, open pipeline, and last activity.",
+        "sql": """
+            SELECT a.account_id, a.account_name, a.channel,
+                   ROUND(COALESCE((SELECT SUM(net_cents) FROM gold_invoice i WHERE i.account_id = a.account_id), 0)/100.0, 2) AS net_sales,
+                   ROUND(100.0 * (SELECT SUM(trade_cents) FROM gold_invoice i WHERE i.account_id = a.account_id)
+                         / NULLIF((SELECT SUM(gross_cents) FROM gold_invoice i WHERE i.account_id = a.account_id), 0), 1) AS trade_pct,
+                   ROUND(100.0 * (SELECT SUM(CASE WHEN status = 'Won' THEN 1 ELSE 0 END) FROM gold_opportunity o WHERE o.account_id = a.account_id)
+                         / NULLIF((SELECT COUNT(*) FROM gold_opportunity o WHERE o.account_id = a.account_id), 0), 1) AS win_rate,
+                   ROUND(COALESCE((SELECT SUM(expected_net_cents) FROM gold_opportunity o WHERE o.account_id = a.account_id AND o.status = 'Open'), 0)/100.0, 2) AS open_pipeline,
+                   (SELECT MAX(activity_date) FROM gold_activity g WHERE g.account_id = a.account_id) AS last_activity
+            FROM account a
+            WHERE 1=1 {scope}
+            ORDER BY net_sales DESC
+        """,
+    },
+    "stage_conversion": {
+        "description": "Opportunity count and share by stage.",
+        "sql": """
+            SELECT stage, COUNT(*) AS opportunities,
+                   ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS share_pct
+            FROM gold_opportunity
+            WHERE 1=1 {scope}
+            GROUP BY stage
+            ORDER BY opportunities DESC
+        """,
+    },
+    "pipeline_age": {
+        "description": "Open pipeline age versus 30 September 2026.",
+        "sql": """
+            SELECT CASE
+                     WHEN opened_date >= '2026-09-01' THEN 'Under 30 days'
+                     WHEN opened_date >= '2026-07-01' THEN '30 to 90 days'
+                     ELSE 'Over 90 days'
+                   END AS age_band,
+                   COUNT(*) AS opportunities,
+                   ROUND(SUM(expected_net_cents)/100.0, 2) AS expected_net
+            FROM gold_opportunity
+            WHERE status = 'Open'{scope}
+            GROUP BY 1
+            ORDER BY expected_net DESC
+        """,
+    },
+    "family_mix_by_quarter": {
+        "description": "Brand-family share of net sales by fiscal quarter in the book.",
+        "sql": """
+            SELECT CASE
+                     WHEN substr(invoice_date, 6, 2) IN ('10', '11', '12') THEN substr(invoice_date, 1, 4) || ' Q4'
+                     WHEN substr(invoice_date, 6, 2) IN ('01', '02', '03') THEN substr(invoice_date, 1, 4) || ' Q1'
+                     WHEN substr(invoice_date, 6, 2) IN ('04', '05', '06') THEN substr(invoice_date, 1, 4) || ' Q2'
+                     ELSE substr(invoice_date, 1, 4) || ' Q3'
+                   END AS quarter,
+                   family,
+                   ROUND(SUM(net_cents)/100.0, 2) AS net_sales
+            FROM gold_invoice
+            WHERE 1=1 {scope}
+            GROUP BY 1, family
+            ORDER BY quarter, net_sales DESC
+        """,
+    },
+    "region_by_channel": {
+        "description": "Net sales by region and channel.",
+        "sql": """
+            SELECT region, channel, ROUND(SUM(net_cents)/100.0, 2) AS net_sales
+            FROM gold_invoice
+            WHERE 1=1 {scope}
+            GROUP BY region, channel
+            ORDER BY region, net_sales DESC
+        """,
+    },
+    "sku_rank": {
+        "description": "SKU net sales ranked inside each brand family.",
+        "sql": """
+            SELECT family, sku_name,
+                   ROUND(SUM(net_cents)/100.0, 2) AS net_sales,
+                   SUM(units) AS units
+            FROM gold_invoice
+            WHERE 1=1 {scope}
+            GROUP BY family, sku_name
+            ORDER BY family, net_sales DESC
+        """,
+    },
     "quality": {
         "description": "Invoice rows kept out of Gold, by reject reason.",
         "sql": "SELECT reason, COUNT(*) AS rows FROM quarantine GROUP BY reason ORDER BY rows DESC",
@@ -358,6 +518,17 @@ _load_public_metrics()
 
 ROUTES = [
     ("public_landscape", ["competitive set", "competitor", "hershey", "mondelez", "mondelēz", "tootsie", "haribo", "perfetti", "mars wrigley", "public landscape", "affiliate"]),
+    ("waterfall_by_family", ["waterfall by brand", "waterfall by family", "price waterfall by brand"]),
+    ("waterfall_by_account", ["waterfall by account", "price waterfall by account"]),
+    ("waterfall_by_channel", ["waterfall", "price waterfall"]),
+    ("season_index", ["season index", "versus january", "vs january"]),
+    ("halloween_window", ["halloween window"]),
+    ("account_scorecard", ["scorecard"]),
+    ("pipeline_age", ["pipeline age", "aging"]),
+    ("stage_conversion", ["stage conversion"]),
+    ("family_mix_by_quarter", ["family mix", "share of net", "mix by quarter"]),
+    ("region_by_channel", ["region by channel", "region and channel"]),
+    ("sku_rank", ["sku rank", "by sku"]),
     ("commercial_funnel", ["funnel", "activity to invoice", "activity through"]),
     ("pipeline_by_stage", ["pipeline", "open opportunit"]),
     ("win_rate_by_channel", ["win rate", "win-rate"]),
@@ -397,6 +568,9 @@ EXAMPLES = [
     "margin by brand",
     "net sales by channel",
     "halloween season",
+    "price waterfall",
+    "account scorecard",
+    "pipeline age",
     "show the public competitive set",
     "what is our Nielsen share",
     "SAP IBP forecast for Nerds",
@@ -684,6 +858,29 @@ def insight(metric, rows):
         return f"Peak invoice month is {peak['month']} at ${peak['net_sales']:,.0f}. September and October include the Halloween family lift."
     if metric == "top_accounts":
         return f"{top['account_name']} is the largest account in this scope at ${top['net_sales']:,.0f} net."
+    if metric in ("waterfall_by_channel", "waterfall_by_family", "waterfall_by_account"):
+        label = top.get("channel") or top.get("family") or top.get("account_name")
+        return f"{label} nets ${top['net_sales']:,.0f} after ${top['trade_spend']:,.0f} trade, with ${top['margin']:,.0f} margin."
+    if metric == "season_index":
+        january = next(row for row in rows if row["invoice_month"] == "2026-01")
+        peak = max(rows, key=lambda row: row["net_sales"])
+        return f"January 2026 is the index base at ${january['net_sales']:,.0f}. Peak month {peak['invoice_month']} indexes at {peak['index_vs_january']}."
+    if metric == "halloween_window":
+        window = next(row for row in rows if row["season_window"] == "Halloween window")
+        return f"The Halloween window is ${window['net_sales']:,.0f} net on Nerds, Trolli, SweeTarts, and Laffy Taffy in September and October."
+    if metric == "account_scorecard":
+        return f"{top['account_name']} nets ${top['net_sales']:,.0f} at a {top['trade_pct']}% trade rate. Last activity {top['last_activity']}."
+    if metric == "stage_conversion":
+        return f"{top['stage']} holds {top['opportunities']} opportunities, {top['share_pct']}% of the book."
+    if metric == "pipeline_age":
+        dollars = sum(row["expected_net"] for row in rows)
+        return f"Open pipeline ${dollars:,.0f} split across age bands measured from 30 September 2026. Largest band: {top['age_band']}."
+    if metric == "family_mix_by_quarter":
+        return f"{top['quarter']} is led by {top['family']} at ${top['net_sales']:,.0f} net."
+    if metric == "region_by_channel":
+        return f"{top['region']} {top['channel']} is the largest region-channel cell at ${top['net_sales']:,.0f} net."
+    if metric == "sku_rank":
+        return f"{top['sku_name']} leads {top['family']} at ${top['net_sales']:,.0f} net."
     if metric == "public_landscape":
         return (
             "Published figures and named peers. A Ferrara sugar-confectionery release, an affiliate holding-company total, "

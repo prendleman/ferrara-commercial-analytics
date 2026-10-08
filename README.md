@@ -4,7 +4,7 @@ Synthetic interview demo for a Ferrara-flavored commercial book: CRM activity, o
 
 Public Ferrara brand names are flavor only. Accounts, people, and dollars are generated. This is not Ferrara or Ferrero production data, and it is not commissioned client work.
 
-Sibling of `vc-retail-analytics`. Local SQLite only. Python 3.9+ standard library.
+This demo stands on its own. Python 3.9+ standard library for the local book. Databricks and Snowflake are optional read paths for the same metric SQL, and they stay dark until credentials are present.
 
 ## Start
 
@@ -33,7 +33,7 @@ Source: https://github.com/prendleman/ferrara-commercial-analytics
 - Refusals for syndicated share, demand-planning forecasts, and MDM / S/4 claims
 - Market tab: published Ferrara, affiliate, and peer figures with sources. Private peers have no invented revenue
 - Lab: board brief, golden evals, scope pin, governed-vs-Genie compare, 90-day plan
-- Header switch runs the same metric SQL on SQLite or Databricks. See `docs/DATABRICKS.md`. Audit stays local. Credentials come from the environment, `.env`, or `~/.databrickscfg`
+- Header switch runs the same metric SQL on SQLite, Databricks, or Snowflake. See `docs/DATABRICKS.md` and `docs/SNOWFLAKE.md`. Audit stays local. A warehouse is used only when its credentials are present
 - Today panel: an illustrative analyst inbox, not a claim about Ferrara’s internal tools
 
 ## Tests

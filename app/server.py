@@ -9,7 +9,16 @@ from urllib.parse import parse_qs, urlparse
 
 from app import demo_auth
 from app import lab
-from app.databricks_backend import ConfigError, DatabricksStore, connection_status, resolve_config, safe_error
+from app.databricks_backend import ConfigError as DatabricksConfigError
+from app.databricks_backend import DatabricksStore
+from app.databricks_backend import connection_status as databricks_status
+from app.databricks_backend import resolve_config as databricks_config
+from app.databricks_backend import safe_error as databricks_safe_error
+from app.snowflake_backend import ConfigError as SnowflakeConfigError
+from app.snowflake_backend import SnowflakeStore
+from app.snowflake_backend import connection_status as snowflake_status
+from app.snowflake_backend import resolve_config as snowflake_config
+from app.snowflake_backend import safe_error as snowflake_safe_error
 from app.core import (
     DB,
     EXAMPLES,
@@ -58,12 +67,20 @@ def use_connection(store):
 class Handler(BaseHTTPRequestHandler):
     store = None
     databricks = None
+    snowflake = None
+
+    def _remote(self, name):
+        if name == "databricks":
+            return self.databricks
+        if name == "snowflake":
+            return self.snowflake
+        return None
 
     def _backend_name(self):
         for part in (self.headers.get("Cookie") or "").split(";"):
             key, _, value = part.strip().partition("=")
-            if key == BACKEND_COOKIE and value in ("local", "databricks"):
-                if value == "databricks" and self.databricks is None:
+            if key == BACKEND_COOKIE and value in ("local", "databricks", "snowflake"):
+                if value != "local" and self._remote(value) is None:
                     return "local"
                 return value
         return "local"
@@ -73,17 +90,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def _with_reads(self, fn):
         backend = self._backend_name()
+        remote = self._remote(backend)
         try:
-            if backend == "local" or self.databricks is None:
+            if remote is None:
                 with use_connection(self.store) as conn:
                     return fn(conn, conn)
             with use_connection(self.store) as audit:
-                return fn(self.databricks, audit)
-        except ConfigError as exc:
+                return fn(remote, audit)
+        except (DatabricksConfigError, SnowflakeConfigError) as exc:
             self._json(409, exc.payload)
             return None
         except Exception as exc:
-            self._json(502, {"error": safe_error(exc), "backend": backend})
+            cleaner = snowflake_safe_error if backend == "snowflake" else databricks_safe_error
+            secret = None
+            if backend == "snowflake" and self.snowflake is not None:
+                secret = self.snowflake.config.get("token") or self.snowflake.config.get("password")
+            self._json(502, {"error": cleaner(exc, secret) if backend == "snowflake" else cleaner(exc), "backend": backend})
             return None
 
     def log_message(self, fmt, *args):
@@ -155,7 +177,8 @@ class Handler(BaseHTTPRequestHandler):
                 payload = {
                     "user": sess,
                     "examples": EXAMPLES,
-                    "databricks": connection_status(),
+                    "databricks": databricks_status(),
+                    "snowflake": snowflake_status(),
                     "backend": self._backend_name(),
                 }
             self._json(200, payload)
@@ -232,22 +255,29 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/backend":
             choice = body.get("backend")
-            if choice not in ("local", "databricks"):
-                self._json(400, {"error": "Backend must be local or databricks."})
+            if choice not in ("local", "databricks", "snowflake"):
+                self._json(400, {"error": "Backend must be local, databricks, or snowflake."})
                 return
-            if choice == "databricks":
-                if self.databricks is None:
-                    status = connection_status()
+            if choice in ("databricks", "snowflake"):
+                remote = self._remote(choice)
+                status = databricks_status() if choice == "databricks" else snowflake_status()
+                label = "Databricks" if choice == "databricks" else "Snowflake"
+                if remote is None:
                     self._json(409, {
-                        "error": "Databricks is not configured.",
+                        "error": f"{label} is not configured.",
                         "missing": status["missing"],
                         "loader": status["loader"],
                     })
                     return
                 try:
-                    self.databricks.execute("SELECT 1 AS ok")
+                    remote.execute("SELECT 1 AS ok")
                 except Exception as exc:
-                    self._json(502, {"error": safe_error(exc), "backend": "databricks"})
+                    if choice == "snowflake":
+                        secret = remote.config.get("token") or remote.config.get("password")
+                        message = snowflake_safe_error(exc, secret)
+                    else:
+                        message = databricks_safe_error(exc)
+                    self._json(502, {"error": message, "backend": choice})
                     return
             self._json(200, {"backend": choice}, [("Set-Cookie", self._backend_cookie(choice))])
             return
@@ -281,8 +311,10 @@ def main():
     args = parser.parse_args()
     seed(DB)
     Handler.store = Store(DB)
-    config = resolve_config()
-    Handler.databricks = DatabricksStore(config) if config["configured"] else None
+    dbx = databricks_config()
+    snow = snowflake_config()
+    Handler.databricks = DatabricksStore(dbx) if dbx["configured"] else None
+    Handler.snowflake = SnowflakeStore(snow) if snow["configured"] else None
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(f"Ferrara commercial demo at http://{args.host}:{args.port}")
     server.serve_forever()
