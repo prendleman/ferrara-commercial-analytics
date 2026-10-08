@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in · Ferrara Commercial Analytics</title>
+  <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Outfit:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <form class="card login-card" id="form">
+    <div class="banner">SYNTHETIC</div>
+    <h2>Sign in</h2>
+    <p class="fine">Demo users only. Not a Ferrara or Ferrero login.</p>
+    <label>Username<br /><input id="username" name="username" autocomplete="username" value="operator" /></label>
+    <p></p>
+    <label>Password<br /><input id="password" name="password" type="password" autocomplete="current-password" value="fc-demo" /></label>
+    <p class="error" id="error"></p>
+    <button class="primary" type="submit">Continue</button>
+    <p class="fine">operator · full book<br />acct-0001 · Lakeshore Grocery only</p>
+  </form>
+  <script>
+    document.getElementById("form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const error = document.getElementById("error");
+      error.textContent = "";
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: document.getElementById("username").value,
+          password: document.getElementById("password").value,
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json();
+        error.textContent = payload.error || "Sign in failed.";
+        return;
+      }
+      location.href = "/app";
+    });
+  </script>
+</body>
+</html>
