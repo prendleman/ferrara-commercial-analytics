@@ -100,8 +100,11 @@ button.ghost, a.ghost {
   display: grid; place-items: center;
   background: var(--ink); color: white; font-weight: 700;
 }
-.brand small, .who { color: var(--muted); display: block; }
-.session { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: flex-end; }
+.brand small { color: var(--muted); display: block; }
+.who { color: var(--muted); }
+.session { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; min-width: 0; }
+.session-bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: flex-end; }
+.backend-note { margin: 0; max-width: 28rem; color: var(--muted); font-size: 13px; line-height: 1.35; text-align: right; }
 .switch { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: white; }
 .switch button { border: 0; border-radius: 0; background: transparent; color: var(--ink); padding: 6px 12px; }
 .switch button.active { background: var(--ink); color: white; }

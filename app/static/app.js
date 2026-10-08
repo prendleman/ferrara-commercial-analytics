@@ -121,7 +121,10 @@ async function renderLab() {
   renderPlan(plan);
   const status = await api("/api/session");
   const warehouse = status.databricks;
-  document.getElementById("lab-out").textContent = `${warehouseStatus(warehouse)}. Active backend ${status.backend}. Loader: ${warehouse.loader}`;
+  const detail = warehouse.configured
+    ? warehouseStatus(warehouse)
+    : `Databricks is not attached on this host. Missing ${warehouse.missing.join(", ")}`;
+  document.getElementById("lab-out").textContent = `${detail}. Active backend ${status.backend}. Loader: ${warehouse.loader}`;
 }
 
 async function renderCatalog() {
@@ -160,9 +163,14 @@ async function show(tab) {
 }
 
 function warehouseStatus(warehouse) {
-  if (!warehouse.configured) return `Databricks needs ${warehouse.missing.join(", ")}`;
   const where = warehouse.catalog === "(workspace default)" ? warehouse.schema : `${warehouse.catalog}.${warehouse.schema}`;
-  return `Databricks ${where}`;
+  return `Reading ${where}`;
+}
+
+function showBackendNote(text) {
+  const note = document.getElementById("dbx");
+  note.hidden = !text;
+  note.textContent = text || "";
 }
 
 async function chooseBackend(backend) {
@@ -173,8 +181,10 @@ async function chooseBackend(backend) {
   });
   const payload = await response.json();
   if (!response.ok) {
-    const missing = payload.missing ? ` Missing ${payload.missing.join(", ")}.` : "";
-    document.getElementById("dbx").textContent = `${payload.error || "Databricks did not connect."}${missing}`;
+    const quiet = payload.missing
+      ? "This site reads the SQLite book. No Databricks warehouse is attached."
+      : (payload.error || "Databricks did not connect.");
+    showBackendNote(quiet);
     return;
   }
   location.reload();
@@ -192,7 +202,11 @@ async function boot() {
     button.classList.toggle("active", button.dataset.backend === session.backend);
     button.addEventListener("click", () => chooseBackend(button.dataset.backend));
   });
-  document.getElementById("dbx").textContent = warehouseStatus(warehouse);
+  const databricksButton = document.querySelector('#backend-switch button[data-backend="databricks"]');
+  if (!warehouse.configured && databricksButton) {
+    databricksButton.title = "No warehouse is attached on this host.";
+  }
+  showBackendNote(session.backend === "databricks" && warehouse.configured ? warehouseStatus(warehouse) : "");
   document.getElementById("chips").innerHTML = session.examples.map((example) => `<button type="button" data-example="${esc(example)}">${esc(example)}</button>`).join("");
   document.getElementById("chips").addEventListener("click", (event) => {
     const example = event.target.dataset.example;

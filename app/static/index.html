@@ -20,13 +20,15 @@
       <span class="banner">SYNTHETIC</span>
     </div>
     <div class="session">
-      <span class="switch" id="backend-switch">
-        <button type="button" data-backend="local">SQLite</button>
-        <button type="button" data-backend="databricks">Databricks</button>
-      </span>
-      <span class="who" id="dbx"></span>
-      <span class="who" id="who"></span>
-      <button id="logout" class="ghost" type="button">Log out</button>
+      <div class="session-bar">
+        <span class="switch" id="backend-switch">
+          <button type="button" data-backend="local">SQLite</button>
+          <button type="button" data-backend="databricks">Databricks</button>
+        </span>
+        <span class="who" id="who"></span>
+        <button id="logout" class="ghost" type="button">Log out</button>
+      </div>
+      <p id="dbx" class="backend-note" hidden></p>
     </div>
   </header>
   <nav>
