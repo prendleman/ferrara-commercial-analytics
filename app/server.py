@@ -101,7 +101,15 @@ class Handler(BaseHTTPRequestHandler):
         for key, value in extra_headers or []:
             self.send_header(key, value)
         self.end_headers()
-        self.wfile.write(data)
+        if not getattr(self, "_head_only", False):
+            self.wfile.write(data)
+
+    def do_HEAD(self):
+        self._head_only = True
+        try:
+            self.do_GET()
+        finally:
+            self._head_only = False
 
     def _json(self, status, payload, extra_headers=None):
         self._send(status, json.dumps(payload), "application/json", extra_headers)

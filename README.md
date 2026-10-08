@@ -14,6 +14,10 @@ python3 -m app.server
 
 Open http://127.0.0.1:8772
 
+Public site: https://ferrara.datasharkbi.com
+
+Source: https://github.com/prendleman/ferrara-commercial-analytics
+
 | User | Password | Scope |
 |---|---|---|
 | `operator` | `fc-demo` | Full book |
