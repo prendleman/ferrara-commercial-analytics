@@ -926,6 +926,7 @@ async function boot() {
       body: JSON.stringify({ mode: "proposed", question: document.getElementById("q-next").value, ...sliceFields() }),
     });
     showAnswer(document.getElementById("out-next"), payload);
+    document.getElementById("out-next").scrollIntoView({ block: "nearest", behavior: "smooth" });
     loaded.assistant = false;
     await loadAudit(undefined, true);
     loaded.assistant = true;

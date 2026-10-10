@@ -359,6 +359,14 @@ textarea, input[type="text"], input[type="password"] {
   font-size: 13px;
 }
 .demo-beats button:hover, .demo-beats button.on { border-color: var(--ink); background: var(--ink); color: white; }
+.example-drawer { margin-top: 14px; }
+.example-drawer summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.example-drawer[open] summary { margin-bottom: 8px; }
 .voice-note { color: var(--accent); min-height: 1.2em; }
 .lab-panel { min-height: 80px; }
 .lab-panel.waiting { color: var(--muted); }
