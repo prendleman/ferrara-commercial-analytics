@@ -371,19 +371,22 @@ async function renderAnalytics(gen) {
   );
 }
 
-function renderAudit(rows) {
+function renderAudit(rows, highlightLatest) {
   if (!rows.length) {
     document.getElementById("audit").innerHTML = "<p class='fine'>No governed questions yet.</p>";
     return;
   }
-  const body = rows.map((row) => `<tr><td>${esc(row.ts)}</td><td>${esc(row.username)}</td><td>${esc(row.account_scope)}</td><td>${esc(row.question)}</td><td>${esc(row.route)}</td><td>${esc(row.metric || "")}</td><td>${esc(row.row_count)}</td></tr>`).join("");
+  const body = rows.map((row, index) => {
+    const fresh = highlightLatest && index === 0 ? " class=\"fresh\"" : "";
+    return `<tr${fresh}><td>${esc(row.ts)}</td><td>${esc(row.username)}</td><td>${esc(row.account_scope)}</td><td>${esc(row.question)}</td><td>${esc(row.route)}</td><td>${esc(row.metric || "")}</td><td>${esc(row.row_count)}</td></tr>`;
+  }).join("");
   document.getElementById("audit").innerHTML = `<table><thead><tr><th>When</th><th>User</th><th>Scope</th><th>Question</th><th>Route</th><th>Metric</th><th>Rows</th></tr></thead><tbody>${body}</tbody></table>`;
 }
 
-async function loadAudit(gen) {
+async function loadAudit(gen, highlightLatest) {
   const payload = await api("/api/audit");
   if (gen !== undefined && !current(gen)) return;
-  renderAudit(payload.rows);
+  renderAudit(payload.rows, highlightLatest);
 }
 
 function moneyOrBlank(value, unit) {
@@ -570,13 +573,61 @@ async function renderCatalog(gen) {
   document.getElementById("metric-list").innerHTML = `<table><thead><tr><th>Metric</th><th>Definition</th></tr></thead><tbody>${metrics}</tbody></table>`;
 }
 
+function formatCell(key, value) {
+  if (value === null || value === undefined) return "—";
+  if (Array.isArray(value) || (typeof value === "object")) return JSON.stringify(value);
+  const lower = String(key).toLowerCase();
+  if (typeof value === "number") {
+    if (lower.includes("rate") || lower.includes("pct") || lower.includes("percent") || lower === "fill" || lower === "score") {
+      return pct(value);
+    }
+    if (lower.includes("net") || lower.includes("sales") || lower.includes("pipeline") || lower.includes("margin") || lower.includes("trade") || lower.includes("gross") || lower.includes("cogs") || lower.includes("expected")) {
+      return money.format(value);
+    }
+    return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+  return String(value);
+}
+
+function rowsTable(rows, limit = 8) {
+  const sample = (rows || []).slice(0, limit);
+  if (!sample.length) return "";
+  const keys = Object.keys(sample[0]).filter((key) => key !== "deals");
+  const head = keys.map((key) => key.replace(/_/g, " "));
+  const body = sample.map((row) => keys.map((key) => formatCell(key, row[key])));
+  return `<div class="row-table">${table(head, body)}</div>`;
+}
+
+function sliceLine(payload) {
+  const bits = [];
+  if (payload.filters && Object.keys(payload.filters).length) {
+    bits.push(`Slice: ${Object.entries(payload.filters).map(([key, value]) => `${key}: ${value}`).join(", ")}`);
+  }
+  if (payload.skipped && payload.skipped.length) bits.push(`Not applied: ${payload.skipped.join(", ")}`);
+  return bits.join(" · ");
+}
+
 function showAnswer(element, payload) {
+  element.classList.add("plain");
+  if (payload.route === "today") {
+    element.innerHTML = `
+      <article class="inbox-mail">
+        <p class="mail-meta">From: analyst inbox · No warehouse query · No audit row</p>
+        <p class="mail-body">${esc(payload.answer || "")}</p>
+      </article>`;
+    return;
+  }
+  const route = payload.route || "metric";
+  const refused = route === "refuse";
+  const applied = sliceLine(payload);
+  const meta = [
+    `<span class="route-badge ${esc(route)}">${esc(route)}</span>`,
+    payload.metric ? `<span class="fine">Metric · ${esc(payload.metric)}</span>` : "",
+    payload.engine ? `<span class="fine">${esc(payload.engine)}</span>` : "",
+  ].filter(Boolean).join("");
+
   if (payload.metric === "call_list") {
-    element.classList.add("plain");
     const calls = payload.rows || [];
-    const applied = payload.filters && Object.keys(payload.filters).length
-      ? Object.entries(payload.filters).map(([key, value]) => `${key}: ${value}`).join(", ")
-      : "";
     const dealRows = calls.flatMap((row) => (row.deals || []).map((deal) => [
       row.account_name,
       deal.family,
@@ -594,41 +645,127 @@ function showAnswer(element, payload) {
       ? `<h3 style="margin-top:16px">Open deals</h3>${table(["Account", "Family", "Stage", "Opened", "Expected net"], dealRows)}`
       : "";
     element.innerHTML = `
-      <p>${esc(payload.answer || "")}</p>
-      <p class="fine">${esc(payload.engine || "")}${applied ? ` · Slice: ${esc(applied)}` : ""}</p>
-      ${callTable}
-      ${dealTable}
-      <pre class="out">${esc(payload.sql || "")}\nParams: ${esc(JSON.stringify(payload.params || []))}</pre>`;
+      <article class="answer-card">
+        <div class="answer-meta">${meta}</div>
+        <p class="insight">${esc(payload.answer || "")}</p>
+        ${applied ? `<p class="fine">${esc(applied)}</p>` : ""}
+        ${callTable}
+        ${dealTable}
+        ${payload.sql ? `<pre class="sql-block">${esc(payload.sql)}</pre><p class="params">Params: ${esc(JSON.stringify(payload.params || []))}</p>` : ""}
+      </article>`;
     return;
   }
-  if (payload.route === "plays") {
-    element.classList.add("plain");
+
+  if (route === "plays") {
     const plays = (payload.rows || []).map((play) => `<article class="play"><h3>${esc(play.title)}</h3><p>${esc(play.detail)}</p></article>`).join("");
     const arenas = (payload.arenas || []).map((arena) => {
       const marks = (arena.marks || []).map((name) => brandMark(name)).join("");
       return `<article class="arena"><p class="kicker">${esc(arena.name)}</p><h3><span class="mark-slot">${marks}</span>${esc(arena.ours)}</h3><p>Against ${esc(arena.theirs)}.</p><p>${esc(arena.press)}</p></article>`;
     }).join("");
-    const applied = payload.filters && Object.keys(payload.filters).length
-      ? Object.entries(payload.filters).map(([key, value]) => `${key}: ${value}`).join(", ")
-      : "";
     element.innerHTML = `
-      <p class="fine">${esc(payload.engine || "")}${applied ? ` · Slice: ${esc(applied)}` : ""}</p>
-      <div class="play-list">${plays}</div>
-      <h3 style="margin-top:16px">Where the brands meet</h3>
-      <div class="arena-grid">${arenas}</div>`;
+      <article class="answer-card">
+        <div class="answer-meta">${meta}</div>
+        ${applied ? `<p class="fine">${esc(applied)}</p>` : ""}
+        <div class="play-list">${plays}</div>
+        <h3 style="margin-top:16px">Where the brands meet</h3>
+        <div class="arena-grid">${arenas}</div>
+      </article>`;
     return;
   }
-  element.classList.remove("plain");
-  const lines = [payload.answer || payload.error || ""];
-  if (payload.engine) lines.push("", `Engine: ${payload.engine}`);
-  const applied = payload.filters && Object.keys(payload.filters).length
-    ? Object.entries(payload.filters).map(([key, value]) => `${key}: ${value}`).join(", ")
-    : "";
-  if (applied) lines.push(`Slice: ${applied}`);
-  if (payload.skipped && payload.skipped.length) lines.push(`Not applied: ${payload.skipped.join(", ")}`);
-  if (payload.sql) lines.push("", payload.sql, `Params: ${JSON.stringify(payload.params)}`);
-  if (payload.route !== "plays" && payload.rows && payload.rows.length) lines.push("", JSON.stringify(payload.rows.slice(0, 8), null, 2));
-  element.textContent = lines.join("\n");
+
+  const sqlBlock = payload.sql
+    ? `<pre class="sql-block">${esc(payload.sql)}</pre><p class="params">Params: ${esc(JSON.stringify(payload.params || []))}</p>`
+    : refused
+      ? `<p class="fine">No SQL. The refusal is audited and nothing is sent to Genie.</p>`
+      : "";
+  element.innerHTML = `
+    <article class="answer-card${refused ? " refuse" : ""}">
+      <div class="answer-meta">${meta}</div>
+      <p class="insight">${esc(payload.answer || payload.error || "")}</p>
+      ${applied ? `<p class="fine">${esc(applied)}</p>` : ""}
+      ${rowsTable(payload.rows)}
+      ${sqlBlock}
+    </article>`;
+}
+
+function renderLabResult(payload) {
+  const out = document.getElementById("lab-out");
+  out.classList.add("plain");
+  if (payload.kind === "board_brief") {
+    const sections = (payload.sections || []).map((section) => `
+      <article class="lab-section">
+        <h4>${esc(section.metric)}</h4>
+        <p class="fine">${esc(section.description || "")}</p>
+        <p>${esc(section.insight || "")}</p>
+        <p class="fine">${esc(section.row_count)} rows · ${esc(JSON.stringify(section.params || []))}</p>
+      </article>`).join("");
+    out.innerHTML = `
+      <div class="lab-head"><span class="fine">Board brief · ${esc(payload.elapsed_ms)} ms</span></div>
+      <p class="lab-narrative">${esc(payload.narrative || "")}</p>
+      ${sections}`;
+    return;
+  }
+  if (payload.kind === "eval_report") {
+    const body = (payload.results || []).map((row) => `
+      <tr>
+        <td>${esc(row.id)}</td>
+        <td>${esc(row.question)}</td>
+        <td>${esc(row.expect)}${row.expect_metric ? ` / ${esc(row.expect_metric)}` : ""}</td>
+        <td>${esc(row.got)}${row.got_metric ? ` / ${esc(row.got_metric)}` : ""}</td>
+        <td class="${row.ok ? "ok" : "bad"}">${row.ok ? "pass" : "fail"}</td>
+      </tr>`).join("");
+    out.innerHTML = `
+      <div class="lab-head">
+        <span class="pass">${esc(payload.pass_pct)}% pass</span>
+        <span class="fine">${esc(payload.passed)} / ${esc(payload.total)} · ${esc(payload.elapsed_ms)} ms</span>
+        ${payload.failed ? `<span class="fail">${esc(payload.failed)} failed</span>` : ""}
+      </div>
+      <p class="fine">${esc(payload.note || "")}</p>
+      <div class="row-table"><table class="eval-table"><thead><tr><th>Case</th><th>Question</th><th>Expect</th><th>Got</th><th></th></tr></thead><tbody>${body}</tbody></table></div>`;
+    return;
+  }
+  if (payload.kind === "scope_pin") {
+    out.innerHTML = `
+      <div class="lab-head"><span class="fine">Scope pin · ${esc(payload.metric)}</span></div>
+      <p class="fine">${esc(payload.note || "")}</p>
+      <div class="scope-grid">
+        <article class="scope-card"><span>Operator net sales</span><b>${esc(money.format(payload.operator_net_sales || 0))}</b><p class="fine">${esc(payload.operator_rows)} channel rows</p></article>
+        <article class="scope-card"><span>Lakeshore Grocery</span><b>${esc(money.format(payload.lakeshore_net_sales || 0))}</b><p class="fine">${esc(payload.lakeshore_rows)} channel rows · ACCT-0001</p></article>
+      </div>`;
+    return;
+  }
+  out.textContent = JSON.stringify(payload, null, 2);
+}
+
+function setSlice(key, value) {
+  slices[key] = value || "";
+  document.querySelectorAll(`#slicers button[data-slice="${key}"]`).forEach((chip) => {
+    chip.classList.toggle("on", chip.dataset.value === (value || ""));
+  });
+}
+
+function clearSlices() {
+  Object.keys(slices).forEach((key) => setSlice(key, ""));
+}
+
+function paintSubregions() {
+  document.querySelectorAll("#slicers button[data-slice=subregion]").forEach((chip) => {
+    const value = chip.dataset.value;
+    const visible = !slices.region || !value || sliceTree[value] === slices.region;
+    chip.hidden = !visible;
+  });
+  if (!slices.subregion) {
+    const all = document.querySelector("#slicers button[data-slice=subregion][data-value='']");
+    if (all) all.classList.add("on");
+  }
+}
+
+function reloadAfterSlice() {
+  paintSubregions();
+  Object.keys(loaded).forEach((key) => {
+    loaded[key] = false;
+  });
+  return show(currentTab);
 }
 
 const loaded = {};
@@ -701,38 +838,71 @@ async function boot() {
       .concat(values.map((value) => `<button type="button" data-slice="${key}" data-value="${esc(value)}">${esc(value)}</button>`));
     return `<div class="slice-group"><span>${esc(label)}</span>${chips.join("")}</div>`;
   }).join("") + `<p class="fine">Family filters invoices and opportunities. Activity has no brand, so activity counts stay on channel, region, subregion, and year.</p>`;
-  function paintSubregions() {
-    document.querySelectorAll("#slicers button[data-slice=subregion]").forEach((chip) => {
-      const value = chip.dataset.value;
-      const visible = !slices.region || !value || sliceTree[value] === slices.region;
-      chip.hidden = !visible;
-    });
-    if (!slices.subregion) {
-      const all = document.querySelector("#slicers button[data-slice=subregion][data-value='']");
-      if (all) all.classList.add("on");
-    }
-  }
   slicer.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-slice]");
     if (!button) return;
     slices[button.dataset.slice] = button.dataset.value;
     if (button.dataset.slice === "region" && slices.subregion && sliceTree[slices.subregion] !== slices.region) {
-      slices.subregion = "";
-      document.querySelectorAll("#slicers button[data-slice=subregion]").forEach((chip) => {
-        chip.classList.toggle("on", chip.dataset.value === "");
-      });
+      setSlice("subregion", "");
     }
     button.parentElement.querySelectorAll("button").forEach((item) => item.classList.toggle("on", item === button));
-    paintSubregions();
-    Object.keys(loaded).forEach((key) => {
-      loaded[key] = false;
-    });
-    show(currentTab);
+    reloadAfterSlice();
   });
   document.getElementById("chips").innerHTML = session.examples.map((example) => `<button type="button" data-example="${esc(example)}">${esc(example)}</button>`).join("");
   document.getElementById("chips").addEventListener("click", (event) => {
     const example = event.target.dataset.example;
     if (example) document.getElementById("q-next").value = example;
+  });
+  document.getElementById("demo-beats").addEventListener("click", async (event) => {
+    const button = event.target.closest("button[data-beat]");
+    if (!button) return;
+    document.querySelectorAll("#demo-beats button").forEach((item) => item.classList.toggle("on", item === button));
+    const beat = button.dataset.beat;
+    const note = document.getElementById("voice-note");
+    note.hidden = true;
+    if (beat === "today") {
+      clearSlices();
+      document.getElementById("q-today").value = "trade spend by channel";
+      await reloadAfterSlice();
+      document.getElementById("ask-today").click();
+      return;
+    }
+    if (beat === "margin") {
+      clearSlices();
+      document.getElementById("q-next").value = "margin by brand";
+      await reloadAfterSlice();
+      document.getElementById("ask-next").click();
+      return;
+    }
+    if (beat === "club") {
+      clearSlices();
+      setSlice("channel", "Club");
+      document.getElementById("q-next").value = "win rate";
+      await reloadAfterSlice();
+      document.getElementById("ask-next").click();
+      return;
+    }
+    if (beat === "family") {
+      clearSlices();
+      setSlice("family", "Nerds");
+      document.getElementById("q-next").value = "activity mix";
+      await reloadAfterSlice();
+      document.getElementById("ask-next").click();
+      return;
+    }
+    if (beat === "nielsen") {
+      clearSlices();
+      document.getElementById("q-next").value = "what is our Nielsen share";
+      await reloadAfterSlice();
+      document.getElementById("ask-next").click();
+      return;
+    }
+    if (beat === "ibp") {
+      clearSlices();
+      document.getElementById("q-next").value = "SAP IBP forecast for Nerds";
+      await reloadAfterSlice();
+      document.getElementById("ask-next").click();
+    }
   });
   document.querySelectorAll("nav button").forEach((button) => {
     button.addEventListener("click", () => show(button.dataset.tab));
@@ -757,7 +927,7 @@ async function boot() {
     });
     showAnswer(document.getElementById("out-next"), payload);
     loaded.assistant = false;
-    await loadAudit();
+    await loadAudit(undefined, true);
     loaded.assistant = true;
   });
   async function hear(body) {
@@ -768,7 +938,7 @@ async function boot() {
     });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
-      throw new Error(payload.error || "Voice failed.");
+      throw new Error(payload.error || "Voice is optional and is not configured on this host.");
     }
     const audio = new Audio(URL.createObjectURL(await response.blob()));
     await audio.play();
@@ -786,17 +956,19 @@ async function boot() {
   async function runLab(path, body) {
     const out = document.getElementById("lab-out");
     out.classList.remove("plain");
+    out.classList.add("waiting");
     out.textContent = path.endsWith("/compare") ? "Asking the governed router and Genie…" : "Running…";
     const payload = await api(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body || {}),
     });
+    out.classList.remove("waiting");
     if (payload.kind === "compare") {
       renderCompare(payload);
       return;
     }
-    out.textContent = JSON.stringify(payload, null, 2);
+    renderLabResult(payload);
   }
   document.getElementById("compete").addEventListener("click", async (event) => {
     if (event.target.id !== "ask-genie-compete") return;
@@ -818,8 +990,8 @@ async function boot() {
       await hear({ source: "board" });
     } catch (error) {
       const out = document.getElementById("lab-out");
-      out.classList.remove("plain");
-      out.textContent = error.message;
+      out.classList.add("plain");
+      out.innerHTML = `<p class="fine">${esc(error.message)}</p>`;
     } finally {
       button.disabled = false;
     }
@@ -830,9 +1002,11 @@ async function boot() {
   });
   document.getElementById("run-scope").addEventListener("click", () => runLab("/api/lab/scope", { metric: "net_by_channel" }));
   document.getElementById("hear").addEventListener("click", () => {
-    const out = document.getElementById("out-next");
+    const note = document.getElementById("voice-note");
+    note.hidden = true;
     hear({ question: document.getElementById("q-next").value, ...sliceFields() }).catch((error) => {
-      out.textContent = error.message;
+      note.hidden = false;
+      note.textContent = error.message;
     });
   });
   await show("brief");

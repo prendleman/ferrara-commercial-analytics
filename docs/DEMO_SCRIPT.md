@@ -48,14 +48,14 @@ Log out. Sign in as `acct-0001`. Overview net sales drops to Lakeshore Grocery. 
 
 ## 6:30 Assistant
 
-Stay on the account login or return to operator.
+Stay on the account login or return to operator. The Walkthrough chips under the heading run the same beats in order.
 
 1. Today: `trade spend by channel` → inbox story, no query.
-2. Proposed: `margin by brand` → insight, SQL, rows.
+2. Proposed: `margin by brand` → route badge, insight, SQL, rows.
 3. Select Club, then ask `win rate`. The answer shows `Slice: channel: Club`, and the params include Club. Clear the chip and the same question is the full book. Family on an activity question shows `Not applied: family`.
 4. `what is our Nielsen share` refuses, with no SQL, even while a chip is on.
 5. `SAP IBP forecast for Nerds` refuses.
-6. Audit table shows the question, route, and scope.
+6. Audit table highlights the latest row with the question, route, and scope.
 
 If the account login is still active, point at `Params` including `ACCT-0001`.
 

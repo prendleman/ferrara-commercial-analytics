@@ -185,15 +185,26 @@
     <section id="assistant" class="tab" hidden>
       <p class="kicker">Today versus proposed</p>
       <h2>An inbox, or an approved query.</h2>
-      <p class="fine">Left is an illustrative analyst inbox. Right is a deterministic router over this warehouse. The chips above apply to that question. A where-to-press question returns the Market plays from those same queries. A refusal still runs no SQL. It is not a language model, and it is not a reconstruction of a Ferrara system.</p>
+      <p class="fine">Left is an illustrative analyst inbox — no warehouse query, no audit. Right is a deterministic router over this warehouse. The chips above apply. A refusal still runs no SQL. It is not a language model.</p>
+      <div id="demo-beats" class="demo-beats" aria-label="Demo beats from the walkthrough">
+        <span>Walkthrough</span>
+        <button type="button" data-beat="today">1 · Today trade</button>
+        <button type="button" data-beat="margin">2 · Margin by brand</button>
+        <button type="button" data-beat="club">3 · Club + win rate</button>
+        <button type="button" data-beat="family">4 · Family skipped</button>
+        <button type="button" data-beat="nielsen">5 · Nielsen refuse</button>
+        <button type="button" data-beat="ibp">6 · IBP refuse</button>
+      </div>
       <div class="split">
-        <article class="panel">
+        <article class="panel lane-today">
+          <p class="lane-tag">No query · no audit</p>
           <h3>Today</h3>
           <textarea id="q-today" rows="3">trade spend by channel</textarea>
           <p><button id="ask-today" class="ghost" type="button">Ask the inbox</button></p>
-          <pre id="out-today" class="out"></pre>
+          <div id="out-today" class="out inbox-out" aria-live="polite"></div>
         </article>
-        <article class="panel">
+        <article class="panel lane-proposed">
+          <p class="lane-tag">Approved metric · SQL · audit</p>
           <h3>Proposed</h3>
           <textarea id="q-next" rows="3">margin by brand</textarea>
           <div id="chips" class="chips"></div>
@@ -201,11 +212,13 @@
             <button id="ask-next" type="button">Ask the governed router</button>
             <button id="hear" class="ghost" type="button">Hear the answer</button>
           </p>
-          <pre id="out-next" class="out"></pre>
+          <p id="voice-note" class="fine voice-note" hidden></p>
+          <div id="out-next" class="out answer-out" aria-live="polite"></div>
         </article>
       </div>
       <article class="panel" style="margin-top:16px">
         <h3>Audit</h3>
+        <p class="fine">Every governed ask writes a row. Refusals are recorded with no SQL.</p>
         <div id="audit"></div>
       </article>
     </section>
@@ -214,14 +227,14 @@
       <h2>Measure the router before a model speaks.</h2>
       <p class="fine">A chained brief, a golden set, a scope pin, and one real Genie space. Genie is not simulated. A refusal is not sent. The Genie reply is labeled with its space title and is not this book.</p>
       <label class="genie-q">Question for Genie<br /><input id="genie-q" type="text" value="margin by brand" /></label>
-      <div class="actions">
+      <div class="actions lab-actions">
         <button id="run-board" class="primary" type="button">Board brief</button>
         <button id="hear-brief" class="ghost" type="button">Hear the brief</button>
         <button id="run-evals" class="ghost" type="button">Run evals</button>
         <button id="run-compare" class="ghost" type="button">Governed vs Genie</button>
         <button id="run-scope" class="ghost" type="button">Scope pin</button>
       </div>
-      <article class="panel" style="margin-top:16px"><div id="lab-out" class="out">Run a lab action.</div></article>
+      <article class="panel" style="margin-top:16px"><div id="lab-out" class="lab-panel">Run a lab action.</div></article>
       <div id="plan"></div>
     </section>
     <section id="catalog" class="tab" hidden>

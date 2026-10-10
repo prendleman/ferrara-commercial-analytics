@@ -799,6 +799,7 @@ EXAMPLES = [
     "win rate by channel",
     "trade spend by channel",
     "margin by brand",
+    "activity mix",
     "net sales by channel",
     "halloween season",
     "price waterfall",
